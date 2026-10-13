@@ -14,9 +14,20 @@
 
 整個流程只有 **2 次 tool call**：`get_design_context` → `build_deck`。
 
-## 安裝（Python 3.8.20）
+## 安裝（Python 3.8.20，64 位元）
+
+**公司連不到 PyPI：離線安裝**。`wheelhouse/` 已附上所有套件，不需要網路：
 ```bat
-cd C:\Coding\report-design-mcp
+install_offline.bat
+```
+如果 `python` 不在 PATH，或不是 3.8 版，就在後面加上 Python 的路徑：
+```bat
+install_offline.bat C:\路徑\python.exe
+```
+這個腳本會檢查是否為 64 位元 Python 3.8、建立 `.venv`、從 `wheelhouse/` 安裝套件，最後執行 smoke test。
+
+能連 PyPI 時也可以用一般安裝：
+```bat
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python tests\smoke_test.py
