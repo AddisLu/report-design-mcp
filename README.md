@@ -14,6 +14,8 @@
 
 整個流程只有 **2 次 tool call**：`get_design_context` → `build_deck`。
 
+📘 **完整使用說明：[docs/使用說明.md](docs/使用說明.md)**，內容包含安裝、Copilot 設定、手繪草稿畫法、修改、自訂與疑難排解。
+
 ## 安裝（Python 3.8.20，64 位元）
 
 **公司連不到 PyPI：離線安裝**。`wheelhouse/` 已附上所有套件，不需要網路：
