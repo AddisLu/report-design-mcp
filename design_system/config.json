@@ -1,0 +1,10 @@
+{
+  "template": "",
+  "default_audience": "manager",
+  "builtin_font_ea": "Microsoft JhengHei",
+  "emphasis_colors": {
+    "alert": "C00000"
+  },
+  "min_font_pt": 12,
+  "output_dir": ""
+}

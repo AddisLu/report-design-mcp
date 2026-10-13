@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+design_system/templates/_builtin_16x9.pptx
+design_system/layout_catalog.json
+~$*
+*.tmp

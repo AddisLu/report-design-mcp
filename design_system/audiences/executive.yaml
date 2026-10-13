@@ -1,0 +1,15 @@
+name: 高階主管
+aliases: [主管, 高階主管, 老闆, 總經理, 處長, exec, executive]
+description: 給處長以上／總經理。只要知道結果、風險，以及需要他做的決定。
+max_slides: 8
+max_bullets_per_slide: 3
+max_chars_per_bullet: 32
+require_headline: true
+structure: |
+  1. 第一頁就給結論與需要的決策（SCQA：情境 → 問題 → 解法 → 需要什麼）
+  2. 每頁標題就是該頁結論（action title），不要用「進度說明」這種名詞標題
+  3. 先總覽，再只展開有問題的項目；正常的項目一句帶過
+  4. 最後一頁：需要的決策、選項與期限
+focus: [關鍵 KPI 與目標的差距, 風險與影響, 需要的決策與期限, 對營收／成本／時程的影響]
+avoid: [技術細節, 過程流水帳, 沒有比較基準的數字, 超過兩層的條列]
+tone: 精簡、肯定句、數字先行；一句話講完一件事

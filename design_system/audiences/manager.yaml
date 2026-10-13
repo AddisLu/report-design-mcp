@@ -1,0 +1,14 @@
+name: 部門經理
+aliases: [經理, 部門主管, 部門經理, 專案經理, PM, manager]
+description: 給部門經理／專案經理。要掌握進度、資源與跨部門依賴，能據此調度。
+max_slides: 15
+max_bullets_per_slide: 5
+max_chars_per_bullet: 45
+require_headline: true
+structure: |
+  1. 總覽頁：整體進度、里程碑、紅黃綠燈
+  2. 依專案或工作項展開：進度與計畫的差距、問題、對策、負責人與期限
+  3. 最後一頁：需要協調的資源與跨部門事項
+focus: [里程碑與進度偏差, 資源與預算, 風險與對策, 跨部門依賴, 負責人與期限]
+avoid: [過深的技術細節, 沒有負責人的待辦]
+tone: 具體、可執行；每個問題都要接對策與負責人

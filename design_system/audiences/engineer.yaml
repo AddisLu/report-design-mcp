@@ -1,0 +1,15 @@
+name: 工程團隊
+aliases: [工程師, 技術團隊, 工程團隊, RD, 研發, engineer]
+description: 給工程師／技術團隊。要知道問題根因、數據細節與下一步工作。
+max_slides: 25
+max_bullets_per_slide: 7
+max_chars_per_bullet: 70
+require_headline: false
+structure: |
+  1. 問題與現況（附數據）
+  2. 根因分析與佐證
+  3. 方案比較（優缺點、成本、風險）
+  4. 待辦清單：項目、負責人、期限
+focus: [根因, 數據與量測方法, 技術方案比較, 待辦與負責人]
+avoid: [空泛的管理用語]
+tone: 精確、可驗證；數字要附單位與量測條件

@@ -1,0 +1,68 @@
+{
+  "title": "Q3 重點專案進度",
+  "audience": "executive",
+  "sources": ["design_system/examples/sample_projects.csv"],
+  "facts": {
+    "delayed": "t1[狀態=延遲].count",
+    "watch": "t1[狀態=注意].count",
+    "b_gap": "=t1[代號=B].目標進度 - t1[代號=B].實際進度",
+    "budget_used": "=t1.已用.sum / t1.預算.sum"
+  },
+  "slides": [
+    {
+      "title": "Q3 重點專案：{t1.count} 案中 {delayed} 案延遲、{watch} 案需注意",
+      "headline": "B 供應鏈整合落後目標 {=b_gap*100 | .0f} 個百分點，需在 10 月底前決定是否追加外包",
+      "source_page": 1
+    },
+    {
+      "layout": "custom",
+      "title": "整體進度符合預期，風險集中在 B、D 兩案",
+      "source_page": 2,
+      "regions": [
+        {"type": "kpi", "x": 0, "y": 1.5, "w": 12, "h": 2, "content": [
+          {"value": "{t1.實際進度.mean}", "label": "平均實際進度", "delta": "目標 {t1.目標進度.mean}"},
+          {"value": "{budget_used | .0%}", "label": "預算使用率"},
+          {"value": "{delayed} 案", "label": "延遲專案", "emphasis": "alert"}
+        ]},
+        {"type": "bullets", "x": 0, "y": 3.8, "w": 6, "h": 4.2, "content": [
+          "**B 供應鏈整合**：實際 {t1[代號=B].實際進度}，落後目標 {=b_gap*100 | .0f} 個百分點",
+          "**D 產線檢測**：設備晚到 1 週，進度 {t1[代號=D].實際進度}",
+          "其餘 {=t1.count - delayed - watch | .0f} 案進度皆達標"
+        ], "directive": "只講有問題的專案"},
+        {"type": "chart", "x": 6, "y": 3.8, "w": 6, "h": 4.2, "content": {
+          "type": "bar", "from": "t1", "category": "專案", "values": ["目標進度", "實際進度"]
+        }}
+      ],
+      "annotations": [
+        {"raw": "延遲的要標紅", "applied": "KPI「延遲專案」用紅色"},
+        {"raw": "左邊只講有問題的", "applied": "條列只列 B、D 兩案，其他一句帶過"}
+      ]
+    },
+    {
+      "repeat": {"over": "t1[狀態!=正常]", "by": "代號"},
+      "title": "{t1[@].專案}：{t1[@].狀態}",
+      "bullets": [
+        "進度：實際 {t1[@].實際進度}，目標 {t1[@].目標進度}",
+        "預算：已用 {t1[@].已用} / {t1[@].預算} 萬元",
+        "主要風險：{t1[@].主要風險}"
+      ],
+      "source_page": 3
+    },
+    {
+      "title": "需要決策：B 案是否追加外包",
+      "bullets": [
+        "!!決策：10 月底前是否追加 B 案外包!!",
+        "D 案維持原計畫，11 月第 1 週複查",
+        "下次報告：11/15（五）"
+      ],
+      "table": {
+        "from": "t1",
+        "columns": ["專案", "部門", "實際進度", "狀態"],
+        "sort": "實際進度",
+        "highlight": {"column": "狀態", "equals": "延遲"}
+      },
+      "notes": "外包報價由採購部提供",
+      "source_page": 4
+    }
+  ]
+}
