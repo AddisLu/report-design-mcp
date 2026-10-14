@@ -8,5 +8,5 @@ description: 依手繪草稿與資料產出 PowerPoint 報告
 - 資料：${input:sources:資料檔或資料夾，多個用逗號分隔}
 - 受眾：${input:audience:主管／經理／工程師}
 
-流程：先呼叫 get_design_context（帶 sketch、sources、audience），接著直接寫出完整 spec，再呼叫 build_deck。
+流程：先呼叫 get_design_context（帶 sketch、sources、audience），接著直接寫出完整 spec，再呼叫 build_deck，最後用 preview_deck 看圖自檢、需要時 patch_deck。
 草稿上每一條紅筆註解都要寫進 annotations，完成後附上註解解讀表。

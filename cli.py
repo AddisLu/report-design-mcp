@@ -4,6 +4,7 @@
   python cli.py context --audience 主管 --sources data/Q3.xlsx [--sketch sketches/q3.pdf]
   python cli.py build spec.json [-o output/]
   python cli.py patch output/x.spec.json patch.json
+  python cli.py preview output/x.pptx [--slides 1-6] [--out output/preview]
   python cli.py canvas sketches/canvas.pdf --pages 6
   python cli.py inspect design_system/templates/company.pptx --set-default
 """
@@ -46,6 +47,11 @@ def main(argv=None):
     p.add_argument("spec_path")
     p.add_argument("patch")
 
+    pv = sub.add_parser("preview", help="layout lint + slide images (images need PowerPoint on Windows)")
+    pv.add_argument("pptx")
+    pv.add_argument("--slides")
+    pv.add_argument("--out", help="folder to save the slide images")
+
     v = sub.add_parser("canvas", help="make a 12x8 grid canvas for the drawing tablet")
     v.add_argument("out")
     v.add_argument("--pages", type=int, default=6)
@@ -77,6 +83,22 @@ def main(argv=None):
         res = deck.patch(a.spec_path, pt.get("slides"), pt.get("delete"), pt.get("insert"), pt.get("out_path"))
         print(tools.format_build(res))
         return 0 if res.get("ok") else 1
+    if a.cmd == "preview":
+        from report_engine import preview
+        from report_engine.lint import format_lint, lint_deck
+
+        res = lint_deck(a.pptx)
+        print(format_lint(res))
+        imgs, err = preview.export_images(a.pptx, a.slides, res["slide_count"])
+        if imgs and a.out:
+            d = Path(a.out)
+            d.mkdir(parents=True, exist_ok=True)
+            for im in imgs:
+                (d / ("slide_%02d.jpg" % im["slide"])).write_bytes(base64.b64decode(im["data"]))
+            print("\n[%d slide images saved to %s]" % (len(imgs), d))
+        elif not imgs:
+            print("\n[no images: %s]" % err)
+        return 0
     if a.cmd == "canvas":
         for path in make_canvas(a.out, a.pages, not a.no_requirements):
             print(path)

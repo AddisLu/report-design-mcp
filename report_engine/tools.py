@@ -9,14 +9,17 @@ import traceback
 from . import config as C
 from . import deck
 from .context import build_context
+from . import preview
 from .deck import REGION_TYPES
+from .lint import format_lint, lint_deck
 from .paths import ENGINE_DIR, resolve_path
 from .sketch import load_sketch_pages, make_canvas
 from .template_inspector import ensure_catalog
 
 SERVER_INSTRUCTIONS = (
-    u"製作 PowerPoint 報告用。流程只有兩步：先呼叫 get_design_context（audience、sources；有手繪草稿就帶 sketch），"
-    u"讀完直接寫出完整 spec 呼叫 build_deck。修改時用 patch_deck 只改有問題的頁。數字一律用 {t1…} 引用。"
+    u"製作 PowerPoint 報告用。流程：1) get_design_context（audience、sources；有手繪草稿就帶 sketch）；"
+    u"2) 讀完直接寫出完整 spec 呼叫 build_deck；3) 呼叫 preview_deck 看每頁圖片與版面檢查，"
+    u"用 patch_deck 只修有問題的頁（自我檢查最多 2 輪）；4) 回報使用者。數字一律用 {t1…} 引用。"
 )
 
 _STR = {"type": "string"}
@@ -72,6 +75,21 @@ TOOL_DEFS = [
                 "out_path": {"type": "string"},
             },
             "required": ["spec_path"],
+        },
+    },
+    {
+        "name": "preview_deck",
+        "description": (
+            u"build_deck／patch_deck 之後的自我檢查：回傳版面檢查（溢出、重疊、對比、字級不一致、太密、太空）"
+            u"與每頁投影片圖片（用本機 PowerPoint 匯出）。看圖找出問題後用 patch_deck 只改那幾頁。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": u"build_deck 回傳的 .pptx（或 .spec.json）路徑"},
+                "slides": {"type": "string", "description": u"只看部分投影片，例如 1-6 或 2,5；一次最多 12 頁"},
+            },
+            "required": ["path"],
         },
     },
     {
@@ -172,7 +190,11 @@ def format_build(res) -> str:
         lines += [u"- " + w for w in res["warnings"][:25]]
         if len(res["warnings"]) > 25:
             lines.append(u"- …另有 %d 則" % (len(res["warnings"]) - 25))
-    lines += ["", u"請把檔案路徑、註解解讀表與重要提醒簡短告訴使用者；使用者沒要求就不要再自動修改。"]
+    if res.get("lint"):
+        lines += ["", u"### " + format_lint(res["lint"])]
+    lines += ["", u"下一步：呼叫 preview_deck(path=\"%s\") 看每頁圖片自我檢查（對照 get_design_context 的視覺設計指引），"
+                  u"只針對 ⚠ 項目與圖上看得到的問題用 patch_deck 修正，最多 2 輪；"
+                  u"之後把檔案路徑、註解解讀表與重要提醒簡短告訴使用者。" % res["path"]]
     return "\n".join(lines)
 
 
@@ -190,6 +212,26 @@ def h_build_deck(a):
 def h_patch_deck(a):
     res = deck.patch(a["spec_path"], _obj(a.get("slides")), _obj(a.get("delete")), _obj(a.get("insert")), a.get("out_path"))
     return _text(format_build(res), not res.get("ok"))
+
+
+def h_preview_deck(a):
+    p = resolve_path(a["path"])
+    if p.suffix.lower() == ".json":
+        out = (C.read_json(p, {}) or {}).get("_output")
+        p = resolve_path(out) if out else p.with_suffix(".pptx")
+    if not p.exists():
+        return _text(u"找不到簡報：%s" % a["path"], True)
+    res = lint_deck(p)
+    text = format_lint(res)
+    imgs, err = preview.export_images(p, a.get("slides"), res["slide_count"])
+    if imgs:
+        text += u"\n\n下方圖片依序為：%s。檢查：每頁一個重點是否一眼看懂、層級（標題＞重點數字＞說明）、" \
+                u"對齊與留白、顏色是否只用在重點、有沒有文字被截斷或擠在一起。" % u"、".join(u"投影片 %d" % i["slide"] for i in imgs)
+    else:
+        text += u"\n\n（沒有預覽圖：%s。請依上面的版面檢查修正。）" % (err or u"未知原因")
+    content = [{"type": "text", "text": text}]
+    content += [{"type": "image", "data": i["data"], "mimeType": "image/jpeg"} for i in imgs or []]
+    return {"content": content, "isError": False}
 
 
 def h_read_sketch(a):
@@ -266,6 +308,7 @@ HANDLERS = {
     "get_design_context": h_get_design_context,
     "build_deck": h_build_deck,
     "patch_deck": h_patch_deck,
+    "preview_deck": h_preview_deck,
     "read_sketch": h_read_sketch,
     "get_sketch_canvas": h_get_sketch_canvas,
     "save_layout": h_save_layout,

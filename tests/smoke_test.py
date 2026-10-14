@@ -28,6 +28,8 @@ from report_engine.sources import load_sources  # noqa: E402
 
 CSV = os.path.join(ROOT, "design_system", "examples", "sample_projects.csv")
 EXAMPLE = os.path.join(ROOT, "design_system", "examples", "executive_example.json")
+MANAGER = os.path.join(ROOT, "design_system", "examples", "manager_example.json")
+BENCH = os.path.join(ROOT, "benchmark", "mcp_reference_spec.json")
 
 
 def check(cond, msg):
@@ -122,6 +124,96 @@ def test_sketch_and_blueprint():
     check(res["ok"] and "第一點" in deck_texts(res["path"])[0], "blueprint layout + fill renders")
 
 
+def _run_sizes(path):
+    sizes = set()
+    for slide in Presentation(path).slides:
+        for shp in slide.shapes:
+            frames = []
+            if shp.has_text_frame:
+                frames.append(shp.text_frame)
+            if getattr(shp, "has_table", False) and shp.has_table:
+                frames.extend(c.text_frame for r in shp.table.rows for c in r.cells)
+            for tf in frames:
+                for p in tf.paragraphs:
+                    sizes.update(r.font.size.pt for r in p.runs if r.font.size is not None)
+    return sizes
+
+
+def test_design_system():
+    from pptx.enum.shapes import PP_PLACEHOLDER
+    from report_engine import preview
+    from report_engine.lint import lint_deck
+    from report_engine.template import resolve_template_path
+    from report_engine.theme import Theme, contrast, load_theme, status_key
+
+    th = load_theme()
+    check(th.primary == "1E4E8C" and th.font_ea == "Microsoft JhengHei", "theme.yaml loaded")
+    check(Theme({"colors": {"primary": "#zzz"}}).primary == "1E4E8C", "invalid hex falls back to default")
+    check(th.snap(15.3) == 14 and th.snap(100) == 54, "font sizes snap to the type scale")
+    check(contrast(th.status_text("warn"), th.neutral(50)) >= 4.5, "amber status text darkened for contrast")
+    check([status_key(x) for x in (u"延遲", "green", u"黃燈", "??")] == ["bad", "good", "warn", None], "status words")
+
+    tpl = resolve_template_path()
+    check(tpl.name == "_brand_16x9.pptx", "brand template generated when no company template")
+    prs = Presentation(str(tpl))
+    check((prs.slide_width, prs.slide_height) == (12192000, 6858000), "brand template is native 16:9")
+    names = [L.name for L in prs.slide_masters[0].slide_layouts]
+    check(names == [u"封面", u"標題及內容", u"章節", u"兩欄", u"僅標題", u"空白"], "brand layouts: %s" % names)
+    from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+    theme_xml = prs.slide_masters[0].part.part_related_by(RT.THEME).blob.decode("utf-8")
+    check("Microsoft JhengHei" in theme_xml and "1E4E8C" in theme_xml, "theme XML carries brand font and colour")
+    mtime = tpl.stat().st_mtime
+    check(resolve_template_path().stat().st_mtime == mtime, "brand template not rebuilt when theme unchanged")
+    theme_file = os.path.join(DESIGN, "theme.yaml")
+    with open(theme_file, encoding="utf-8") as f:
+        original = f.read()
+    with open(theme_file, "w", encoding="utf-8") as f:
+        f.write(original.replace('primary: "1E4E8C"', 'primary: "0F766E"'))
+    rebuilt = Presentation(str(resolve_template_path()))
+    check("0F766E" in rebuilt.slide_masters[0].part.part_related_by(RT.THEME).blob.decode("utf-8"),
+          "editing theme.yaml rebuilds the brand template")
+    with open(theme_file, "w", encoding="utf-8") as f:
+        f.write(original)
+
+    for spec_path, n in ((MANAGER, 5), (BENCH, 9)):
+        with open(spec_path, encoding="utf-8") as f:
+            spec = json.load(f)
+        res = deck.build(spec, os.path.join(TMP, "ds_out", os.path.basename(spec_path) + ".pptx"),
+                         base_dir=os.path.dirname(spec_path))
+        check(res["ok"], "%s builds: %s" % (os.path.basename(spec_path), res.get("errors")))
+        check(res["slide_count"] == n, "%s -> %d slides (got %d)" % (os.path.basename(spec_path), n, res["slide_count"]))
+        warns = [i for i in res["lint"]["issues"] if i["level"] == "warn"]
+        check(not warns, "%s passes the layout lint: %s" % (os.path.basename(spec_path), warns))
+        off = _run_sizes(res["path"]) - set(th.steps)
+        check(not off, "every font size comes from the type scale (off: %s)" % sorted(off))
+    texts = deck_texts(res["path"])
+    check(u"延遲" in texts[2] and u"王雅婷" in texts[2], "status block rendered from table")
+    check(u"落後專案：原因與對策" in texts[5], "section slide rendered")
+    check(u"資料來源：" in texts[1] and texts[1].strip().endswith("2"), "footer source + slide number")
+    pres = Presentation(res["path"])
+    check(not any(s.is_placeholder and s.placeholder_format.type == PP_PLACEHOLDER.SLIDE_NUMBER
+                  for s in pres.slides[0].shapes), "no slide number on the cover")
+
+    # lint catches overlap, overflow and poor contrast
+    from pptx.dml.color import RGBColor
+    from pptx.util import Inches, Pt
+    bad = Presentation(str(tpl))
+    sl = bad.slides.add_slide(bad.slide_layouts[5])
+    for i in range(2):
+        tb = sl.shapes.add_textbox(Inches(1 + i * 0.5), Inches(2), Inches(4), Inches(1))
+        r = tb.text_frame.paragraphs[0].add_run()
+        r.text = u"重疊的文字方塊" * (12 if i else 1)
+        r.font.size = Pt(18)
+        r.font.color.rgb = RGBColor.from_string("DDDDDD")
+    bad_path = os.path.join(TMP, "bad.pptx")
+    bad.save(bad_path)
+    msgs = " ".join(i["msg"] for i in lint_deck(bad_path)["issues"])
+    check(u"重疊" in msgs and u"超出框" in msgs and u"對比" in msgs, "lint flags overlap / overflow / contrast")
+    if os.name != "nt":
+        imgs, err = preview.export_images(res["path"], None, 3)
+        check(imgs is None and err, "preview degrades gracefully without PowerPoint")
+
+
 def test_mcp_stdio():
     with open(EXAMPLE, encoding="utf-8") as f:
         spec = json.load(f)
@@ -140,9 +232,10 @@ def test_mcp_stdio():
     replies = [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line.strip()]
     check([r.get("id") for r in replies] == [1, 2, 3, 4], "one reply per request, none for the notification")
     check(replies[0]["result"]["serverInfo"]["name"] == "report-design", "initialize")
-    check(len(replies[1]["result"]["tools"]) == 7, "tools/list returns 7 tools")
+    check(len(replies[1]["result"]["tools"]) == 8, "tools/list returns 8 tools")
     ctx = replies[2]["result"]["content"][0]["text"]
     check("t1 ＝ sample_projects.csv" in ctx and "高階主管" in ctx, "context includes data and audience")
+    check(u"視覺設計指引" in ctx and "preview_deck" in ctx, "context includes the visual design guide")
     check(not replies[3]["result"]["isError"] and "已產出" in replies[3]["result"]["content"][0]["text"],
           "build_deck over MCP")
 
@@ -150,7 +243,7 @@ def test_mcp_stdio():
 if __name__ == "__main__":
     try:
         for fn in (test_facts, test_build_and_patch, test_overflow_and_layouts, test_errors,
-                   test_sketch_and_blueprint, test_mcp_stdio):
+                   test_sketch_and_blueprint, test_design_system, test_mcp_stdio):
             print("==", fn.__name__)
             fn()
         print("\nALL PASSED  (outputs in %s)" % TMP)

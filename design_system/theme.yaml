@@ -1,0 +1,53 @@
+# 品牌視覺設定（設計 token）。沒有公司範本時，系統會依這份設定自動產生 16:9 品牌範本；
+# 有公司範本時，元件（KPI 卡、狀態燈、圖表、表格）仍會套用這裡的中性色、狀態色與字級。
+# 改完存檔即可，下次 build_deck 會自動重建範本。顏色一律寫 6 碼 hex（不含 #）。
+
+colors:
+  primary: "1E4E8C"      # 品牌主色：重點、KPI 色條、表頭、圖表重點
+  secondary: "E07A1F"    # 品牌輔色：少量點綴、第二數列
+  chart: ["1E4E8C", "E07A1F", "5B8DB8", "7A8794", "A9C4DE", "C9A227"]   # 多數列時依序使用
+  neutral:               # 灰階：文字、底卡、格線
+    "900": "1F2933"
+    "700": "3E4C59"
+    "500": "616E7C"
+    "300": "CBD2D9"
+    "100": "E4E7EB"
+    "50": "F5F7FA"
+  status:                # 只用在狀態（紅黃綠燈、漲跌、警示）
+    good: "2E7D32"
+    warn: "E0A100"
+    bad: "C62828"
+
+fonts:
+  latin: "Segoe UI"
+  ea: "Microsoft JhengHei"
+
+# 字級（pt）。縮字時只會落在 steps 裡的值，確保整份簡報字級一致
+type_scale:
+  cover: 40
+  section: 32
+  title: 26
+  subtitle: 18
+  headline: 20
+  body: [18, 16, 14]
+  kpi_value: 40
+  kpi_label: 13
+  table: 12
+  chart: 11
+  note: 11
+  caption: 10
+  steps: [9, 10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36, 40, 44, 48, 54]
+
+# 間距（英吋）
+spacing:
+  margin_x: 0.6
+  margin_top: 0.4
+  gap: 0.2               # 區塊之間的間距
+
+logo:
+  path: ""               # 例如 design_system/brand/logo.png（透明背景 PNG 最好）
+  height: 0.35           # 英吋
+
+footer:
+  text: ""               # 每頁左下角的文字，例如「○○公司 內部資料」；該頁有 source 時改顯示資料來源
+  page_number: true

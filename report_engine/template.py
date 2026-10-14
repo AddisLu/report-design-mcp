@@ -1,4 +1,4 @@
-"""Template loading (.pptx / .potx), slide clearing, and the built-in 16:9 fallback template."""
+"""Template loading (.pptx / .potx), slide clearing, and the generated 16:9 brand template fallback."""
 from __future__ import annotations
 
 import io
@@ -6,10 +6,6 @@ import zipfile
 from pathlib import Path
 
 from pptx import Presentation
-from pptx.opc.constants import RELATIONSHIP_TYPE as RT
-from pptx.oxml import parse_xml
-from pptx.oxml.ns import qn
-from pptx.util import Emu
 
 from .config import load_config
 from .paths import design_dir, resolve_path
@@ -17,7 +13,7 @@ from .paths import design_dir, resolve_path
 _TEMPLATE_CT = b"application/vnd.openxmlformats-officedocument.presentationml.template.main+xml"
 _PRES_CT = b"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
 TEMPLATE_EXT = (".pptx", ".potx")
-BUILTIN_NAME = "_builtin_16x9.pptx"
+BRAND_NAME = "_brand_16x9.pptx"
 
 
 def _potx_as_pptx(path: Path) -> io.BytesIO:
@@ -48,35 +44,18 @@ def remove_all_slides(prs) -> None:
         prs.part.drop_rel(r_id)
 
 
-def _scale_x(shape, sx: float) -> None:
-    sp_pr = getattr(shape._element, "spPr", None)
-    if sp_pr is None or sp_pr.find(qn("a:xfrm")) is None:
-        return  # position inherited from the master, which is scaled already
-    shape.left = Emu(int(shape.left * sx))
-    shape.width = Emu(int(shape.width * sx))
+def ensure_brand_template(cfg=None) -> Path:
+    """The generated 16:9 brand template; rebuilt whenever theme.yaml (or the logo) changes."""
+    from .brand_template import BRAND_VERSION, build_brand_template
+    from .theme import load_theme
 
-
-def build_builtin_template(dest: Path, font_ea: str = "") -> Path:
-    """python-pptx's default template is 4:3; stretch it to 16:9 and set an East Asian theme font."""
-    prs = Presentation()
-    old_w = prs.slide_width
-    prs.slide_width, prs.slide_height = Emu(12192000), Emu(6858000)
-    sx = prs.slide_width / old_w
-    for master in prs.slide_masters:
-        for shp in master.shapes:
-            _scale_x(shp, sx)
-        for layout in master.slide_layouts:
-            for shp in layout.shapes:
-                _scale_x(shp, sx)
-        if font_ea:
-            theme = master.part.part_related_by(RT.THEME)
-            new = theme.blob.replace(b'<a:ea typeface=""/>', ('<a:ea typeface="%s"/>' % font_ea).encode("utf-8"))
-            if hasattr(theme, "_element"):
-                theme._element = parse_xml(new)
-            else:
-                theme._blob = new
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    prs.save(str(dest))
+    theme = load_theme(cfg)
+    dest = design_dir() / "templates" / BRAND_NAME
+    stamp = dest.with_suffix(".hash")
+    fp = "%s-%s" % (BRAND_VERSION, theme.fingerprint())
+    if not dest.exists() or not stamp.exists() or stamp.read_text(encoding="utf-8").strip() != fp:
+        build_brand_template(dest, theme)
+        stamp.write_text(fp, encoding="utf-8")
     return dest
 
 
@@ -95,11 +74,8 @@ def resolve_template_path(explicit=None, cfg=None) -> Path:
     if tdir.exists():
         cands = sorted(
             x for x in tdir.iterdir()
-            if x.suffix.lower() in TEMPLATE_EXT and not x.name.startswith(("_builtin", "~$"))
+            if x.suffix.lower() in TEMPLATE_EXT and not x.name.startswith(("_builtin", "_brand", "~$"))
         )
         if cands:
             return cands[0]
-    builtin = tdir / BUILTIN_NAME
-    if not builtin.exists():
-        build_builtin_template(builtin, cfg.get("builtin_font_ea") or "")
-    return builtin
+    return ensure_brand_template(cfg)

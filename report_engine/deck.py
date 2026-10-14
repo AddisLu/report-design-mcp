@@ -12,6 +12,7 @@ from .paths import output_dir, resolve_path
 from .renderer import DeckRenderer, plain_text
 from .sources import load_sources
 from .template import resolve_template_path
+from .theme import status_key
 
 REGION_TYPES = {
     "title": "title", u"標題": "title",
@@ -23,6 +24,7 @@ REGION_TYPES = {
     "table": "table", u"表": "table", u"表格": "table",
     "image": "image", u"圖片": "image", u"照片": "image",
     "note": "note", u"備註": "note", u"註": "note",
+    "status": "status", u"狀態": "status", u"燈號": "status", u"紅綠燈": "status", u"紅黃綠燈": "status",
 }
 CHART_TYPES = {"column", "bar", "stacked", "stacked_bar", "line", "area", "pie", "doughnut"}
 MAX_REPEAT = 40
@@ -148,9 +150,58 @@ class Build:
             if val is None and it.get("fact"):
                 f = str(it["fact"]).strip()
                 val = f if f.startswith("{") else "{%s}" % f
+            good = str(it.get("good") or "up").lower()
             res.append({"value": self.txt(val, where) or u"—", "label": self.txt(it.get("label"), where) or "",
-                        "delta": self.txt(it.get("delta"), where), "emph": it.get("emphasis")})
+                        "delta": self.txt(it.get("delta"), where), "emph": it.get("emphasis"),
+                        "good": "down" if good in ("down", u"低", u"下降", u"越低越好") else "up",
+                        "status": status_key(self.txt(it.get("status"), where)) if it.get("status") else None})
+        if len(res) > 4:
+            self.warnings.append(u"%s：%d 個 KPI 偏多，建議 4 個以內，只留最重要的" % (where, len(res)))
         return {"type": "kpis", "items": res} if res else None
+
+    def status(self, st, where):
+        """Traffic-light list: [{name, status, note, owner}] or {from, name, status, note, owner} column names."""
+        items = []
+        if isinstance(st, dict) and st.get("from"):
+            try:
+                t, rows = self.resolver.rows_from(st["from"])
+            except RefError as e:
+                self.errors.append(u"%s：status.from → %s" % (where, e))
+                return None
+            cols = {k: st.get(k) for k in ("name", "status", "note", "owner") if st.get(k)}
+            missing = [c for c in cols.values() if c not in t.columns]
+            if "name" not in cols or "status" not in cols or missing:
+                self.errors.append(u"%s：status 需要 name 與 status 欄位名稱，且欄位要存在（缺：%s；%s 欄位：%s）"
+                                   % (where, u"、".join(missing) or "name/status", t.id, u"、".join(t.columns)))
+                return None
+            sort = str(st.get("sort") or "")
+            if sort.lstrip("-+").strip() in ("status", cols["status"]):  # by severity: 延遲 → 注意 → 正常
+                rank = {"bad": 0, "warn": 1, "good": 2}
+                rows = sorted(rows, key=lambda r: rank.get(status_key(r.get(cols["status"])), 3),
+                              reverse=sort.startswith("-"))
+            elif sort:
+                rows = _sort_rows(rows, sort)
+            if st.get("limit"):
+                rows = rows[:int(st["limit"])]
+            for r in rows:
+                raw = {k: format_value(r.get(c), t.kinds.get(c)) if r.get(c) is not None else "" for k, c in cols.items()}
+                items.append(raw)
+        else:
+            for it in (st.get("items") if isinstance(st, dict) else st) or []:
+                if isinstance(it, str):
+                    it = {"name": it}
+                items.append({k: self.txt(it.get(k), where) or "" for k in ("name", "status", "note", "owner")})
+        out = []
+        for it in items:
+            key = status_key(it.get("status"))
+            if it.get("status") and key is None:
+                self.warnings.append(u"%s：狀態「%s」看不懂，請用 正常/注意/延遲（或 綠/黃/紅）" % (where, it["status"]))
+            out.append({"name": self._terms(it.get("name") or ""), "status": key, "label": it.get("status") or "",
+                        "note": self._terms(it.get("note") or ""), "owner": it.get("owner") or ""})
+        if not out:
+            self.errors.append(u"%s：status 沒有項目" % where)
+            return None
+        return {"type": "status", "items": out}
 
     def chart(self, c, where):
         if not isinstance(c, dict):
@@ -223,8 +274,20 @@ class Build:
         if not cats or not series:
             self.errors.append(u"%s：圖表沒有資料（請給 from+category+values，或 categories+series）" % where)
             return None
+        if ctype in ("pie", "doughnut") and len(cats) > 5:
+            self.warnings.append(u"%s：圓餅圖有 %d 個類別，超過 5 個很難比較，建議改用 bar（橫條）並排序" % (where, len(cats)))
+        if len(series) > 4:
+            self.warnings.append(u"%s：圖表有 %d 組數列，建議 3 組以內，或拆成兩張圖" % (where, len(series)))
+        hl = c.get("highlight") or []
+        if isinstance(hl, str):
+            hl = [hl]
+        hl = [self.txt(h, where) for h in hl]
+        unknown = [h for h in hl if h not in [str(x) for x in cats]]
+        if unknown:
+            self.warnings.append(u"%s：highlight 的「%s」不在類別裡（類別：%s）" % (where, u"、".join(unknown), u"、".join(str(x) for x in cats[:8])))
         return {"type": "chart", "chart_type": ctype, "categories": cats, "series": series,
-                "title": self.txt(c.get("title"), where), "labels": bool(c.get("labels", False))}
+                "title": self.txt(c.get("title"), where), "labels": bool(c.get("labels", False)),
+                "highlight": hl, "highlight_color": c.get("highlight_color")}
 
     def table(self, tb, where):
         if not isinstance(tb, dict):
@@ -255,13 +318,14 @@ class Build:
                     s = "" if v is None else format_value(v, t.kinds.get(h["column"]))
                     if (h.get("equals") is not None and s == str(h["equals"])) or (h.get("contains") and h["contains"] in s):
                         hl.add(i)
-            return {"type": "table", "columns": [self._terms(c) for c in cols], "rows": cells, "highlight": hl}
+            return {"type": "table", "columns": [self._terms(c) for c in cols], "rows": cells, "highlight": hl,
+                    "title": self.txt(tb.get("title"), where)}
         cols = [self.txt(c, where) for c in tb.get("columns") or []]
         cells = [[self.txt(x, where) for x in row] for row in tb.get("rows") or []]
         if not cols:
             self.errors.append(u"%s：table 需要 from，或 columns+rows" % where)
             return None
-        return {"type": "table", "columns": cols, "rows": cells,
+        return {"type": "table", "columns": cols, "rows": cells, "title": self.txt(tb.get("title"), where),
                 "highlight": set(int(i) for i in tb.get("highlight_rows") or [])}
 
     def image(self, img, where):
@@ -279,7 +343,7 @@ class Build:
         raw_type = str(r.get("type", "")).strip()
         rtype = REGION_TYPES.get(raw_type.lower()) or REGION_TYPES.get(raw_type)
         if not rtype:
-            self.errors.append(u"%s：不認得區塊類型「%s」（可用：title/headline/bullets/text/kpi/chart/table/image/note）"
+            self.errors.append(u"%s：不認得區塊類型「%s」（可用：title/headline/bullets/text/kpi/chart/table/status/image/note）"
                                % (where, raw_type))
             return None
         try:
@@ -291,7 +355,7 @@ class Build:
         w, h = max(0.5, min(w, 12.0 - x)), max(0.5, min(h, 8.0 - y))
         content = r.get("content")
         if content is None:
-            for k in ("text", "bullets", "kpis", "chart", "table", "image", "value"):
+            for k in ("text", "bullets", "kpis", "chart", "table", "image", "status", "items", "value"):
                 if k in r:
                     content = r[k]
                     break
@@ -314,6 +378,8 @@ class Build:
             block = self.table(content, where)
         elif rtype == "image":
             block = self.image(content, where)
+        elif rtype == "status":
+            block = self.status(content, where)
         else:
             block = {"type": "note", "text": self.txt(str(content), where)}
         if block is None:
@@ -340,7 +406,14 @@ class Build:
     def normalize(self, s, idx, label=None):
         where = u"第 %d 頁%s" % (idx, u"（%s）" % label if label else "")
         ns = {"idx": idx, "label": label, "where": where, "page": s.get("source_page"),
-              "title": self.txt(s.get("title"), where), "notes": self.txt(s.get("notes"), where)}
+              "title": self.txt(s.get("title"), where), "notes": self.txt(s.get("notes"), where),
+              "source": self.txt(s.get("source"), where)}
+        if str(s.get("type", "")).lower() in ("section", u"章節", u"章節頁"):
+            ns["mode"] = "section"
+            ns["subtitle"] = self.txt(s.get("subtitle") or s.get("headline"), where)
+            if not ns["title"]:
+                self.errors.append(u"%s：章節頁需要 title" % where)
+            return ns
         layout = s.get("layout")
         regions_spec = None
         if isinstance(layout, str) and "/" in layout and layout.split("/")[0] in self.blueprints:
@@ -370,7 +443,8 @@ class Build:
             if s.get("text"):
                 paras += self.plain_paras(s["text"], where)
             blocks = [{"type": "text", "paras": paras}] if paras else []
-            for key, fn in (("kpis", self.kpis), ("chart", self.chart), ("table", self.table), ("image", self.image)):
+            for key, fn in (("kpis", self.kpis), ("status", self.status), ("chart", self.chart), ("table", self.table),
+                            ("image", self.image)):
                 if s.get(key):
                     b = fn(s[key], where)
                     if b:
@@ -458,6 +532,7 @@ def build(spec, out_path=None, base_dir=None) -> dict:
 
     template = resolve_template_path(spec.get("template"), b.cfg)
     r = DeckRenderer(template, b.cfg)
+    r.meta = {k: b.txt(spec.get(k), u"封面") for k in ("author", "date") if spec.get(k)}
     produced = r.render_all(nslides)
     b.warnings.extend(r.warnings)
 
@@ -498,7 +573,12 @@ def build(spec, out_path=None, base_dir=None) -> dict:
     C.write_json(spec_path, saved_spec)
     if b.replaced:
         b.warnings.append(u"已自動替換用語 %d 處（style_rules.yaml）" % b.replaced)
-    return {"ok": True, "path": str(saved), "spec_path": str(spec_path), "slide_count": len(r.prs.slides),
+    try:
+        from .lint import lint_deck
+        lint = lint_deck(saved, b.cfg)
+    except Exception as e:  # lint must never block delivering the deck
+        lint = {"slide_count": len(r.prs.slides), "issues": [{"slide": 0, "level": "info", "msg": u"版面檢查失敗：%s" % e}]}
+    return {"ok": True, "lint": lint, "path": str(saved), "spec_path": str(spec_path), "slide_count": len(r.prs.slides),
             "template": str(template), "audience": b.aud_key, "mapping": mapping,
             "annotations": annotations, "warnings": b.warnings}
 

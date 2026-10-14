@@ -1,6 +1,6 @@
 # ReportDesign MCP：讓 Copilot 照公司範本產出像樣的 PowerPoint 報告
 
-像 Claude Design 一樣運作，有三個重點：**設計系統**（範本＋受眾規則＋文風），**結構化產出**（模型只寫內容，不碰版面），以及**手繪草稿當需求**。可以掛在 VS Code 的 GitHub Copilot（Agent 模式）上使用，可在 **Windows 11＋Python 3.8** 執行。
+像 Claude Design 一樣運作，有四個重點：**設計系統**（品牌 token＋範本＋元件＋受眾規則＋文風），**結構化產出**（模型做設計決策，但只用受控的元件詞彙，不碰座標），**看圖自我檢查**（產出後渲染每頁、檢查版面再修正），以及**手繪草稿當需求**。可以掛在 VS Code 的 GitHub Copilot（Agent 模式）上使用，可在 **Windows 11＋Python 3.8** 執行。
 
 ## 為什麼直接叫 Sonnet 寫會不像樣
 一次 prompt 就要模型同時讀資料、算數字、寫內容、排版面，每一件都只做到一半。這套工具把工作拆開：
@@ -9,10 +9,12 @@
 |---|---|
 | 讀 Excel／CSV／Word／PPT／PDF、算數字 | Python（數字用 `{t1…}` 引用，模型無法捏造） |
 | 依受眾決定重點與故事線、寫結論句 | 模型（受 `audiences/*.yaml` 規則約束） |
-| 版面、字型、顏色、位置 | 公司範本（模型不碰座標） |
+| 每頁放什麼元件、強調哪裡、怎麼排 | 模型（依 `guides/visual_guide.md` 視覺設計指引） |
+| 字型、色票、字級、間距、卡片／圖表／表格樣式、頁碼頁尾 | 設計系統（`theme.yaml`＋品牌範本或公司範本） |
 | 文字放不下、用語、空泛詞、數字來源 | `build_deck` 自動修正或提醒 |
+| 溢出、重疊、對比不足、版面太空太密 | `preview_deck` 版面檢查＋每頁圖片，模型自己修 |
 
-整個流程只有 **2 次 tool call**：`get_design_context` → `build_deck`。
+流程：`get_design_context` → `build_deck` → `preview_deck`（看圖自檢）→ 需要時 `patch_deck`。
 
 📘 **完整使用說明：[docs/使用說明.md](docs/使用說明.md)**，內容包含安裝、Copilot 設定、手繪草稿畫法、修改、自訂與疑難排解。
 
@@ -37,14 +39,19 @@ python -m venv .venv
 
 ## 掛到 GitHub Copilot（VS Code）
 1. 用 VS Code 開啟這個資料夾。`.vscode/mcp.json` 已經設定好 `report-design` server。
-2. Copilot Chat 切到 **Agent** 模式，在工具清單中確認有 `report-design` 的 7 個工具。
+2. Copilot Chat 切到 **Agent** 模式，在工具清單中確認有 `report-design` 的 8 個工具。
 3. `.github/copilot-instructions.md` 會自動套用工作流程；`.github/prompts/` 裡有 3 個一鍵 prompt：`/report-from-sketch`、`/exec-report`、`/project-review-mgr`。
 
 想在其他專案資料夾也能使用：把 `.vscode/mcp.json` 的路徑改成絕對路徑，例如 `C:/Coding/report-design-mcp/.venv/Scripts/python.exe`，再放到該專案的 `.vscode/` 或 VS Code 使用者設定中。
 
 > 公司若用 policy 停用了 MCP：同一套引擎可以改用 `cli.py`，讓 Copilot 在終端機執行（見下方 CLI）。
 
-## 第一次設定：換成公司範本
+## 第一次設定：品牌（沒有公司範本也可以）
+打開 `design_system/theme.yaml`，填入品牌主色、輔色（6 碼 hex）、字型與 Logo 路徑，存檔即可。
+沒有公司範本時，系統會依這份設定**自動產生原生 16:9 品牌範本**（封面、章節、標題及內容、兩欄、僅標題、空白），
+並套用到 KPI 卡、紅黃綠燈、圖表、表格、頁碼與資料來源列；改了 theme.yaml 會自動重建。
+
+## 有公司範本時：換成公司範本
 ```bat
 copy 公司範本.pptx design_system\templates\
 .venv\Scripts\python cli.py inspect design_system\templates\公司範本.pptx --set-default
@@ -79,6 +86,7 @@ copy 公司範本.pptx design_system\templates\
 | `get_design_context` | 一次取得受眾規則、文風、版型、已存版型、資料摘要、spec 寫法、範例、草稿圖片 |
 | `build_deck` | spec → 檢查＋自動修正＋產出 .pptx（同時存 .spec.json） |
 | `patch_deck` | 只改指定頁，再重新產出 |
+| `preview_deck` | 版面檢查（溢出、重疊、對比、字級、太空太密）＋每頁圖片（本機 PowerPoint 匯出），讓模型看圖修正 |
 | `read_sketch` | 草稿頁數很多時分批讀取 |
 | `get_sketch_canvas` | 產生格線底稿 PDF／PNG |
 | `save_layout` | 把草稿版型存成可重複使用的版型 |
@@ -92,8 +100,16 @@ copy 公司範本.pptx design_system\templates\
 .venv\Scripts\python cli.py context --audience 主管 --sources data\Q3.xlsx --sketch sketches\q3.pdf
 .venv\Scripts\python cli.py build design_system\examples\executive_example.json -o output\
 .venv\Scripts\python cli.py patch output\Q3重點專案進度_executive.spec.json patch.json
+.venv\Scripts\python cli.py preview output\Q3重點專案進度_executive.pptx --out output\preview
 ```
+
+## 和 Claude Design 對比
+`benchmark/` 有同一份題目、資料與評分表，分別給 Claude Design 和本工具做，方便並排比較，見 [benchmark/README.md](benchmark/README.md)。
 
 ## 第二版規劃
 - OpenProject 資料來源（API v3：work packages、進度、逾期）
-- `preview_deck`：透過 PowerPoint COM 匯出 PNG，讓模型看圖微調
+
+## 為什麼不整合 storytold/designcraft
+DesignCraft 是用 Rust 重寫 InDesign 的桌面排版軟體（附 MCP），目前 pre-alpha；它**不輸出 .pptx、沒有圖表、也沒有設計規則或 token**，
+還要另外部署原生執行檔。它解決的是印刷排版，不是簡報的設計感，也不符合「只用現有套件」的限制。
+我們只借用它「渲染成圖給模型看」的做法，改用本機 PowerPoint 實作成 `preview_deck`。
