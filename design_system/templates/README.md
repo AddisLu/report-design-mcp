@@ -10,4 +10,4 @@ python cli.py inspect design_system/templates/公司範本.pptx --set-default
 
 執行後會更新 `design_system/layout_catalog.json`。你可以手動修改其中每個版型的 `use`（用途說明），模型會依這些說明挑選版型。
 
-還沒放範本時，系統會自動產生並使用 `_builtin_16x9.pptx`。
+還沒放範本時，系統會依 `design_system/theme.yaml`（品牌色、字型、Logo）自動產生並使用 `_brand_16x9.pptx`；改了 theme.yaml 會自動重建。

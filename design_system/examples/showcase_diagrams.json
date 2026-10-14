@@ -1,0 +1,262 @@
+{
+ "title": "特殊圖表與截圖展示",
+ "audience": "manager",
+ "sources": [
+  "benchmark/data/projects.csv"
+ ],
+ "slides": [
+  {
+   "title": "特殊圖表與截圖展示：甘特圖、時程、流程、示意圖、系統截圖",
+   "headline": "所有元素都是原生 PowerPoint 圖形，可直接在 PowerPoint 裡修改"
+  },
+  {
+   "layout": "custom",
+   "title": "Q4 排程：資料中台與供應鏈可視化是關鍵路徑",
+   "source": "OpenProject 匯出（2026/10/14）",
+   "regions": [
+    {
+     "type": "gantt",
+     "x": 0,
+     "y": 1.3,
+     "w": 12,
+     "h": 6.7,
+     "content": {
+      "today": "2026/10/14",
+      "tasks": [
+       {
+        "name": "需求訪談",
+        "start": "2026/08/01",
+        "end": "2026/08/31",
+        "progress": 1,
+        "group": "資料中台",
+        "owner": "李承翰"
+       },
+       {
+        "name": "主資料標準",
+        "start": "2026/09/01",
+        "end": "2026/11/20",
+        "progress": 0.45,
+        "status": "延遲",
+        "group": "資料中台",
+        "owner": "李承翰"
+       },
+       {
+        "name": "資料管線建置",
+        "start": "2026/10/15",
+        "end": "2026/12/31",
+        "progress": 0.1,
+        "group": "資料中台",
+        "owner": "外部顧問"
+       },
+       {
+        "name": "供應商 API 介接",
+        "start": "2026/08/15",
+        "end": "2026/11/05",
+        "progress": 0.52,
+        "status": "延遲",
+        "group": "供應鏈可視化",
+        "owner": "王雅婷"
+       },
+       {
+        "name": "儀表板開發",
+        "start": "2026/10/01",
+        "end": "2026/12/15",
+        "progress": 0.2,
+        "group": "供應鏈可視化",
+        "owner": "王雅婷"
+       },
+       {
+        "name": "使用者測試",
+        "start": "2026/12/01",
+        "end": "2027/01/15",
+        "group": "供應鏈可視化",
+        "owner": "王雅婷"
+       }
+      ],
+      "milestones": [
+       {
+        "name": "年度上線",
+        "date": "2027/01/20"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "layout": "custom",
+   "title": "ERP 雲端遷移：已完成 3 個里程碑，財務模組 10/20 上線",
+   "regions": [
+    {
+     "type": "timeline",
+     "x": 0,
+     "y": 1.6,
+     "w": 12,
+     "h": 6,
+     "content": {
+      "today": "2026/10/14",
+      "items": [
+       {
+        "date": "2026/04/15",
+        "label": "專案啟動",
+        "note": "完成範疇與預算核定"
+       },
+       {
+        "date": "2026/06/01",
+        "label": "架構設計",
+        "note": "雲端架構與資安審查通過"
+       },
+       {
+        "date": "2026/08/20",
+        "label": "資料遷移演練",
+        "note": "2 次完整演練，資料正確率 {=0.998 | .1%}"
+       },
+       {
+        "date": "2026/10/20",
+        "label": "財務模組上線",
+        "note": "需要財務部配合月結切換",
+        "state": "current"
+       },
+       {
+        "date": "2026/12/15",
+        "label": "全模組上線",
+        "note": "含採購、庫存、人事"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "layout": "custom",
+   "title": "供應鏈可視化導入流程：目前在第 3 步",
+   "regions": [
+    {
+     "type": "process",
+     "x": 0,
+     "y": 1.8,
+     "w": 12,
+     "h": 5,
+     "content": {
+      "steps": [
+       {
+        "title": "需求確認",
+        "note": "訪談 6 個事業部，定義 24 項指標",
+        "owner": "採購部",
+        "state": "done"
+       },
+       {
+        "title": "資料盤點",
+        "note": "盤點 38 家主要供應商資料格式",
+        "owner": "資訊部",
+        "state": "done"
+       },
+       {
+        "title": "API 介接",
+        "note": "供應商規格延宕 3 週，改採批次介接",
+        "owner": "王雅婷",
+        "state": "current",
+        "status": "延遲"
+       },
+       {
+        "title": "儀表板",
+        "note": "延遲、庫存、交期 3 張主畫面",
+        "owner": "資訊部",
+        "state": "todo"
+       },
+       {
+        "title": "推廣上線",
+        "note": "教育訓練與 SOP",
+        "owner": "採購部",
+        "state": "todo"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "layout": "custom",
+   "title": "資料中台架構：三層設計，主資料標準是關鍵",
+   "regions": [
+    {
+     "type": "svg",
+     "x": 0,
+     "y": 1.3,
+     "w": 12,
+     "h": 6.7,
+     "content": "<svg viewBox='0 0 870 390' xmlns='http://www.w3.org/2000/svg'><defs><marker id='a'/></defs><rect x='0' y='10' width='200' height='370' rx='10' fill='neutral-50'/><text x='100' y='40' text-anchor='middle' font-size='14' font-weight='bold' fill='neutral-700'>資料來源</text><g font-size='14'><rect x='20' y='60' width='160' height='60' rx='8' fill='white' stroke='neutral-300'/><text x='100' y='95' text-anchor='middle'>ERP</text><rect x='20' y='140' width='160' height='60' rx='8' fill='white' stroke='neutral-300'/><text x='100' y='175' text-anchor='middle'>MES 製造系統</text><rect x='20' y='220' width='160' height='60' rx='8' fill='white' stroke='neutral-300'/><text x='100' y='255' text-anchor='middle'>供應商 API</text><rect x='20' y='300' width='160' height='60' rx='8' fill='white' stroke='neutral-300'/><text x='100' y='335' text-anchor='middle'>IoT 感測器</text></g><path d='M 200 195 L 300 195' stroke='neutral-500' stroke-width='2' marker-end='url(#a)'/><rect x='310' y='60' width='250' height='270' rx='14' fill='primary'/><text x='435' y='120' text-anchor='middle' font-size='20' font-weight='bold' fill='white'>資料中台</text><text x='435' y='160' text-anchor='middle' font-size='14' fill='white'>整合 · 清洗 · 主資料管理</text><rect x='340' y='200' width='190' height='44' rx='22' fill='bad'/><text x='435' y='227' text-anchor='middle' font-size='14' font-weight='bold' fill='white'>主資料標準（延遲）</text><path d='M 560 195 L 660 195' stroke='neutral-500' stroke-width='2' marker-end='url(#a)'/><rect x='670' y='10' width='200' height='370' rx='10' fill='neutral-50'/><text x='770' y='40' text-anchor='middle' font-size='14' font-weight='bold' fill='neutral-700'>應用</text><g font-size='14'><rect x='690' y='80' width='160' height='70' rx='8' fill='white' stroke='primary' stroke-width='2'/><text x='770' y='120' text-anchor='middle'>經營儀表板</text><rect x='690' y='170' width='160' height='70' rx='8' fill='white' stroke='primary' stroke-width='2'/><text x='770' y='210' text-anchor='middle'>供應鏈可視化</text><rect x='690' y='260' width='160' height='70' rx='8' fill='white' stroke='primary' stroke-width='2'/><text x='770' y='300' text-anchor='middle'>AI 預測</text></g><circle cx='435' cy='300' r='6' fill='secondary'/><path d='M 30 375 Q 435 420 840 375' stroke='none' fill='none'/></svg>"
+    }
+   ]
+  },
+  {
+   "layout": "custom",
+   "title": "OpenProject 實況：供應鏈可視化與資料中台延遲",
+   "source": "OpenProject 工作項目畫面（2026/10/14 擷取）",
+   "regions": [
+    {
+     "type": "截圖",
+     "x": 0,
+     "y": 1.3,
+     "w": 12,
+     "h": 6.7,
+     "content": {
+      "path": "design_system/examples/assets/openproject_工作項目_sample.png",
+      "style": "browser",
+      "url": "openproject.company.com/projects/dx/work_packages",
+      "highlights": [
+       {
+        "x": 0.17,
+        "y": 0.275,
+        "w": 0.81,
+        "h": 0.055,
+        "note": "供應鏈可視化：完成度 {t1[代號=P2].實際進度}，到期日 11/05 有風險"
+       },
+       {
+        "x": 0.17,
+        "y": 0.512,
+        "w": 0.81,
+        "h": 0.055,
+        "note": "資料中台：完成度 {t1[代號=P6].實際進度}，主資料標準尚未定案"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "layout": "custom",
+   "title": "素材待補時：先放待補框，素材到齊再補上",
+   "regions": [
+    {
+     "type": "截圖",
+     "x": 0,
+     "y": 1.3,
+     "w": 7.5,
+     "h": 6.7,
+     "content": {
+      "need": "產線 AOI 設備現場照片",
+      "search": [
+       "AOI",
+       "產線",
+       "現場"
+      ]
+     }
+    },
+    {
+     "type": "text",
+     "x": 7.9,
+     "y": 1.6,
+     "w": 4.1,
+     "h": 6,
+     "content": "collect_assets 會在 asset_dirs 依檔名找候選圖；找不到時列入待補清單，請使用者提供。"
+    }
+   ]
+  }
+ ],
+ "author": "數位轉型辦公室",
+ "date": "2026/10/14",
+ "asset_dirs": [
+  "design_system/examples/assets"
+ ]
+}

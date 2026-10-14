@@ -18,6 +18,7 @@ FULL_ROWS = 40
 PREVIEW_ROWS = 12
 MAX_COLS = 14
 DOC_CHARS = 6000
+EXAMPLE_SLIDES = 8
 
 
 def _guide(name: str) -> str:
@@ -109,8 +110,8 @@ def build_context(audience=None, sources=None, sketch=None, sketch_pages=None, b
     parts = [
         u"# 報告設計情境（ReportDesign）",
         u"**下一步**：讀完以下內容後，直接寫出完整 spec 並呼叫 `build_deck`"
-        u"（spec.audience=\"%s\"，spec.sources=%s%s）。"
-        u"不需要再呼叫其他工具，也不要先停下來請使用者確認大綱。"
+        u"（spec.audience=\"%s\"，spec.sources=%s%s），再用 `preview_deck` 看圖自我檢查。"
+        u"不要先停下來請使用者確認大綱。"
         % (aud_key, src_json, u"，spec.template=\"%s\"" % template if template else ""),
     ]
     others = [k for k in C.list_audiences() if k != aud_key]
@@ -136,13 +137,22 @@ def build_context(audience=None, sources=None, sketch=None, sketch_pages=None, b
         data.append(u"⚠ " + e)
     parts.append("\n\n".join(data))
 
+    parts.append(_guide("visual_guide.md"))
     parts.append(_guide("spec_guide.md"))
-    exs = C.examples()
+    exs = C.examples()  # newest first, so decks the team approved recently shape the next one
     if exs:
-        chosen = next((e for e in exs if aud_key in e[0].stem), exs[0])
-        parts.append(u"## 範例 spec（%s，示範寫法；實際內容請依本次資料）\n```json\n%s\n```"
-                     % (chosen[0].name, json.dumps(chosen[1], ensure_ascii=False, indent=1)))
+        chosen = [e for e in exs if aud_key in e[0].stem][:2] or exs[:1]
+        for path, ex in chosen:
+            ex = {k: v for k, v in ex.items() if k not in C.INTERNAL_KEYS}
+            note = ""
+            if len(ex.get("slides") or []) > EXAMPLE_SLIDES:
+                note = u"（共 %d 頁，只列前 %d 頁）" % (len(ex["slides"]), EXAMPLE_SLIDES)
+                ex = dict(ex, slides=ex["slides"][:EXAMPLE_SLIDES])
+            parts.append(u"## 範例 spec（%s%s，示範寫法與公司習慣；實際內容請依本次資料）\n```json\n%s\n```"
+                         % (path.name, note, json.dumps(ex, ensure_ascii=False, indent=1)))
     if pages:
+        parts.append(u"spec 請加上 `\"sketch\": %s`，collect_assets 才能把線框圖和草稿並排給使用者確認。"
+                     % json.dumps(str(sketch), ensure_ascii=False))
         parts.append(u"## 手繪草稿（共 %d 頁，下方圖片依序為：%s）" % (
             len(pages), u"、".join(u"第 %d 頁" % p["page"] for p in pages)))
         parts.append(_guide("sketch_guide.md"))

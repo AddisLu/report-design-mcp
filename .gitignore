@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 output/
 design_system/templates/_builtin_16x9.pptx
+design_system/templates/_brand_16x9.pptx
+design_system/templates/_brand_16x9.hash
 design_system/layout_catalog.json
 ~$*
 *.tmp
+benchmark/results/

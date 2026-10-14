@@ -111,13 +111,20 @@ def inspect_presentation(prs) -> dict:
     )
     blank = _pick(layouts, lambda L: not L["title"] and not L["subtitle"] and nc(L) == 0, ["blank", "空白"]) or with_title
     cover = _pick(layouts, lambda L: L["title"] and L["subtitle"] and nc(L) == 0, ["title slide", "標題投影片", "封面"])
+    section = None
+    for L in layouts:  # only a layout that is clearly named as a section divider
+        if L["key"] != cover and L["title"] and nc(L) <= 1 and any(
+                w in L["name"].lower() for w in ("section", u"章節", u"節標題", u"區段")):
+            section = L["key"]
+            break
     by_count = {}
     for n in range(1, 7):
         k = _pick(layouts, lambda L, n=n: L["title"] and not L["subtitle"] and nc(L) == n,
                   ["title and content", "標題及內容", "two content", "兩個內容", "比較", "comparison"])
         if k:
             by_count[n] = k
-    return {"layouts": layouts, "with_title": with_title, "blank": blank, "cover": cover, "by_count": by_count,
+    return {"layouts": layouts, "with_title": with_title, "blank": blank, "cover": cover, "section": section,
+            "by_count": by_count,
             "slide_size": (int(sw), int(sh))}
 
 
@@ -131,6 +138,7 @@ def catalog_json(info: dict, template_path: Path, mtime: int) -> dict:
                     for L in info["layouts"]],
         "custom_base": {"with_title": info["with_title"], "blank": info["blank"]},
         "cover": info["cover"],
+        "section": info.get("section"),
         "by_count": {str(k): v for k, v in info["by_count"].items()},
     }
 

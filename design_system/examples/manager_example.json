@@ -1,0 +1,66 @@
+{
+  "title": "Q3 專案群月報",
+  "audience": "manager",
+  "author": "專案管理部",
+  "date": "2026/10/14",
+  "sources": ["design_system/examples/sample_projects.csv"],
+  "facts": {
+    "delayed": "t1[狀態=延遲].count",
+    "watch": "t1[狀態=注意].count",
+    "budget_used": "=t1.已用.sum / t1.預算.sum",
+    "b_gap": "=t1[代號=B].目標進度 - t1[代號=B].實際進度"
+  },
+  "slides": [
+    {
+      "title": "Q3 專案群：{t1.count} 案中 {delayed} 案延遲、{watch} 案需注意",
+      "headline": "B 供應鏈整合需在 10 月底前決定是否追加外包，其餘專案按計畫進行"
+    },
+    {
+      "layout": "custom",
+      "title": "整體進度 {t1.實際進度.mean}，預算使用 {budget_used | .0%}，風險集中在 B、D 兩案",
+      "source": "專案追蹤表（2026/09/30）",
+      "regions": [
+        {"type": "kpi", "x": 0, "y": 1.3, "w": 12, "h": 1.9, "content": [
+          {"value": "{t1.實際進度.mean}", "label": "平均實際進度", "delta": "−{=(t1.目標進度.mean - t1.實際進度.mean)*100 | .1f} pts vs 目標"},
+          {"value": "{budget_used | .0%}", "label": "預算使用率", "delta": "已用 {t1.已用.sum} / {t1.預算.sum} 萬元"},
+          {"value": "{delayed} 案", "label": "延遲專案", "status": "延遲"}
+        ]},
+        {"type": "status", "x": 0, "y": 3.4, "w": 12, "h": 4.6, "content": {
+          "from": "t1", "name": "專案", "status": "狀態", "note": "主要風險", "owner": "部門", "sort": "狀態"
+        }}
+      ]
+    },
+    {
+      "layout": "custom",
+      "title": "B 供應鏈整合落後目標 {=b_gap*100 | .0f} 個百分點，其餘專案皆在 5 點內",
+      "source": "專案追蹤表（2026/09/30）",
+      "regions": [
+        {"type": "chart", "x": 0, "y": 1.3, "w": 8, "h": 6.7, "content": {
+          "type": "bar", "from": "t1", "category": "專案", "values": ["目標進度", "實際進度"], "sort": "-實際進度",
+          "labels": true, "highlight": ["供應鏈整合"], "highlight_color": "alert"
+        }},
+        {"type": "bullets", "x": 8.4, "y": 1.6, "w": 3.6, "h": 6.2, "content": [
+          "灰色＝目標，色條＝實際",
+          "**供應鏈整合**：供應商交期延誤 2 週",
+          "**產線檢測**：設備晚到 1 週，列入觀察"
+        ]}
+      ]
+    },
+    {
+      "type": "section",
+      "title": "需要協調的事項",
+      "subtitle": "外包決策 · 設備到貨"
+    },
+    {
+      "title": "需要決策：10 月底前是否追加 B 案外包",
+      "source": "專案追蹤表（2026/09/30）",
+      "bullets": [
+        "!!決策：10/31 前核准 B 案外包，否則上線延後到 12 月!!",
+        "D 案維持原計畫，11 月第 1 週複查",
+        "下次報告：11/14（五）"
+      ],
+      "table": {"from": "t1", "columns": ["專案", "部門", "實際進度", "狀態"], "sort": "實際進度",
+                "highlight": {"column": "狀態", "equals": "延遲"}, "title": "各專案進度"}
+    }
+  ]
+}
