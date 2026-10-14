@@ -586,12 +586,24 @@ class DeckRenderer:
             self._draw_kpis(slide, rect, block["items"])
         elif t == "status":
             self._draw_status(slide, rect, block["items"])
+        elif t in ("gantt", "timeline", "process"):
+            from . import diagrams
+            getattr(diagrams, "draw_" + t)(self, slide, rect, block)
+        elif t == "svg":
+            from .svg import draw_svg
+            if block.get("title"):
+                rect = self._chart_title(slide, rect, block["title"])
+            for msg in draw_svg(self, slide, rect, block["svg"]):
+                self.warnings.append(u"%s：%s" % (self._where, msg))
         elif t == "chart":
             self._draw_chart(slide, rect, block)
         elif t == "table":
             self._draw_table(slide, rect, block)
         elif t == "image":
             self._draw_image(slide, rect, block)
+        elif t == "images":
+            from .images import draw_gallery
+            draw_gallery(self, slide, rect, block)
 
     def _textbox(self, slide, rect, anchor=MSO_ANCHOR.TOP):
         x, y, w, h = rect
@@ -986,14 +998,8 @@ class DeckRenderer:
                            fill=fill, color=self.theme.neutral(900), rule=self.theme.neutral(100))
 
     def _draw_image(self, slide, rect, b) -> None:
-        from PIL import Image
-
-        x, y, w, h = rect
-        with Image.open(str(b["path"])) as im:
-            iw, ih = im.size
-        s = min(w / float(iw), h / float(ih))
-        pw, ph = int(iw * s), int(ih * s)
-        slide.shapes.add_picture(str(b["path"]), Emu(x + (w - pw) // 2), Emu(y + (h - ph) // 2), Emu(pw), Emu(ph))
+        from .images import draw_image
+        draw_image(self, slide, rect, b)
 
     def _notes(self, slide, notes) -> None:
         if not notes:

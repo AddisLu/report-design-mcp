@@ -1,9 +1,12 @@
 """spec (JSON from the model) -> normalized slides -> .pptx, in one call. Also patch_deck."""
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import re
 from collections import OrderedDict
+
+from lxml import etree
 from pathlib import Path
 
 from . import config as C
@@ -12,6 +15,8 @@ from .paths import output_dir, resolve_path
 from .renderer import DeckRenderer, plain_text
 from .sources import load_sources
 from .template import resolve_template_path
+from .diagrams import to_date
+from .svg import local, parse_svg
 from .theme import status_key
 
 REGION_TYPES = {
@@ -22,10 +27,16 @@ REGION_TYPES = {
     "kpi": "kpi", "kpis": "kpi", u"指標": "kpi", u"數字": "kpi",
     "chart": "chart", u"圖": "chart", u"圖表": "chart",
     "table": "table", u"表": "table", u"表格": "table",
-    "image": "image", u"圖片": "image", u"照片": "image",
+    "image": "image", u"圖片": "image", u"照片": "image", u"截圖": "image", "screenshot": "image",
+    "images": "images", "gallery": "images", u"圖組": "images", u"截圖組": "images", u"多張圖": "images",
     "note": "note", u"備註": "note", u"註": "note",
     "status": "status", u"狀態": "status", u"燈號": "status", u"紅綠燈": "status", u"紅黃綠燈": "status",
+    "gantt": "gantt", u"甘特圖": "gantt", u"甘特": "gantt", u"排程": "gantt",
+    "timeline": "timeline", u"時程表": "timeline", u"時程": "timeline", u"時間軸": "timeline", u"里程碑": "timeline",
+    "process": "process", u"流程": "process", u"流程圖": "process", u"步驟": "process",
+    "svg": "svg", "diagram": "svg", "drawing": "svg", u"示意圖": "svg", u"繪圖": "svg", u"圖解": "svg", u"架構圖": "svg",
 }
+DIAGRAM_KEYS = ("gantt", "timeline", "process", "svg", "images")
 CHART_TYPES = {"column", "bar", "stacked", "stacked_bar", "line", "area", "pie", "doughnut"}
 MAX_REPEAT = 40
 _NUM_WARN_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?\s*%|\d+\.\d+|\d{3,})(?!\w)")
@@ -328,13 +339,224 @@ class Build:
         return {"type": "table", "columns": cols, "rows": cells, "title": self.txt(tb.get("title"), where),
                 "highlight": set(int(i) for i in tb.get("highlight_rows") or [])}
 
+    IMAGE_STYLES = ("card", "browser", "shadow", "plain")
+
     def image(self, img, where):
-        path = img.get("path") if isinstance(img, dict) else img
+        spec = img if isinstance(img, dict) else {"path": img}
+        path = spec.get("path")
         p = resolve_path(path) if path else None
         if p is None or not p.exists():
             self.warnings.append(u"%s：找不到圖片「%s」，先放文字占位" % (where, path))
             return {"type": "note", "text": u"[圖片：%s]" % (path or "")}
-        return {"type": "image", "path": str(p)}
+        if p.suffix.lower() == ".svg":  # vector art becomes editable shapes
+            return self.svg({"path": str(p), "title": spec.get("title")}, where)
+        style = str(spec.get("style") or "card").lower()
+        if style not in self.IMAGE_STYLES:
+            self.warnings.append(u"%s：圖片 style「%s」不認得（可用 card/browser/shadow/plain），改用 card" % (where, style))
+            style = "card"
+        out = {"type": "image", "path": str(p), "style": style, "caption": self.txt(spec.get("caption"), where),
+               "url": spec.get("url"), "fit": spec.get("fit"), "trim": spec.get("trim", True) is not False}
+        crop = spec.get("crop")
+        if crop is not None:
+            if isinstance(crop, dict) or (isinstance(crop, list) and len(crop) == 4):
+                out["crop"] = crop
+            else:
+                self.warnings.append(u"%s：crop 要是 [左, 上, 右, 下] 或 {x,y,w,h}，已忽略" % where)
+        hls = []
+        for i, hl in enumerate(spec.get("highlights") or [], 1):
+            if not isinstance(hl, dict) or not all(k in hl for k in ("x", "y", "w", "h")):
+                self.warnings.append(u"%s：highlights 第 %d 項需要 x,y,w,h，已略過" % (where, i))
+                continue
+            hl = dict(hl)
+            if hl.get("note"):
+                hl["note"] = self._terms(self.txt(hl["note"], where))
+            hls.append(hl)
+        out["highlights"] = hls
+        z = spec.get("zoom")
+        if isinstance(z, dict) and all(k in z for k in ("x", "y", "w", "h")):
+            out["zoom"] = z
+        elif z:
+            self.warnings.append(u"%s：zoom 需要 x,y,w,h，已忽略" % where)
+        return out
+
+    def images(self, imgs, where):
+        spec = imgs if isinstance(imgs, dict) else {"items": imgs}
+        items = []
+        for it in spec.get("items") or []:
+            b = self.image(it, where)
+            if b and b["type"] == "image":
+                items.append(b)
+        if not items:
+            self.errors.append(u"%s：圖組沒有可用的圖片" % where)
+            return None
+        if len(items) > 6:
+            self.warnings.append(u"%s：一頁 %d 張圖偏多，建議 6 張內（拆頁或只留重點）" % (where, len(items)))
+        return {"type": "images", "items": items, "columns": spec.get("columns"), "title": self.txt(spec.get("title"), where)}
+
+    # -- drawings -------------------------------------------------------
+    def _date(self, v, where, what):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str) and str(v).strip().lower() in ("today", u"今天"):
+            return _dt.date.today()
+        if isinstance(v, str) and "{" in v:
+            v = self.resolver.render(v, self.errors, where)
+        try:
+            return to_date(v)
+        except ValueError as e:
+            self.errors.append(u"%s：%s %s" % (where, what, e))
+            return None
+
+    def _ratio(self, v, where):
+        if v is None or v == "":
+            return None
+        n = self.resolver.number(v, self.errors, where)
+        if n is None:
+            return None
+        return n / 100.0 if n > 1.0 else n
+
+    def _rows_or_items(self, spec, key, cols, where, label):
+        """Items from spec[key], or from a table: {"from": "t1", <field>: <column>…}."""
+        if isinstance(spec, list):
+            return spec
+        if not isinstance(spec, dict):
+            self.errors.append(u"%s：%s 必須是物件或陣列" % (where, label))
+            return None
+        if not spec.get("from"):
+            return spec.get(key) or []
+        try:
+            t, rows = self.resolver.rows_from(spec["from"])
+        except RefError as e:
+            self.errors.append(u"%s：%s.from → %s" % (where, label, e))
+            return None
+        mapping = {k: spec.get(k) for k in cols if spec.get(k)}
+        missing = [c for c in mapping.values() if c not in t.columns]
+        if missing:
+            self.errors.append(u"%s：%s 沒有欄位 %s（欄位：%s）" % (where, t.id, u"、".join(missing), u"、".join(t.columns)))
+            return None
+        if spec.get("sort"):
+            rows = _sort_rows(rows, str(spec["sort"]))
+        out = []
+        for r in rows[:int(spec.get("limit") or len(rows))]:
+            it = {}
+            for k, c in mapping.items():
+                v = r.get(c)
+                it[k] = v if (_is_num(v) or v is None) else format_value(v, t.kinds.get(c))
+            out.append(it)
+        return out
+
+    def gantt(self, g, where):
+        items = self._rows_or_items(g, "tasks", ("name", "start", "end", "progress", "status", "group", "owner"),
+                                    where, "gantt")
+        if items is None:
+            return None
+        g = g if isinstance(g, dict) else {}
+        tasks = []
+        for i, it in enumerate(items, 1):
+            if isinstance(it, str):
+                self.errors.append(u"%s：甘特圖第 %d 項需要 name、start、end" % (where, i))
+                continue
+            w = u"%s 甘特圖「%s」" % (where, it.get("name") or i)
+            start = self._date(it.get("start"), w, "start")
+            end = self._date(it.get("end"), w, "end") or start
+            if start is None:
+                if it.get("start") in (None, ""):
+                    self.errors.append(u"%s：缺少 start" % w)
+                continue
+            if end < start:
+                self.warnings.append(u"%s：end 早於 start，已對調" % w)
+                start, end = end, start
+            tasks.append({"name": self._terms(self.txt(it.get("name"), where) or u"—"), "start": start, "end": end,
+                          "progress": self._ratio(it.get("progress"), w),
+                          "status": status_key(it.get("status")) if it.get("status") else None,
+                          "group": self.txt(it.get("group"), where) or "", "owner": self.txt(it.get("owner"), where) or "",
+                          "milestone": bool(it.get("milestone"))})
+        miles = []
+        for m in g.get("milestones") or []:
+            d = self._date(m.get("date"), where, u"milestones.date")
+            if d:
+                miles.append({"name": self.txt(m.get("name"), where) or "", "date": d,
+                              "status": status_key(m.get("status")) if m.get("status") else None})
+        if not tasks and not miles:
+            if not items:  # otherwise each bad item has already been reported
+                self.errors.append(u"%s：甘特圖沒有任何工作項" % where)
+            return None
+        if len(tasks) + len(miles) > 14:
+            self.warnings.append(u"%s：甘特圖 %d 列偏多，建議 12 列內（用 group 分組或拆頁）" % (where, len(tasks) + len(miles)))
+        return {"type": "gantt", "tasks": tasks, "milestones": miles, "today": self._date(g.get("today"), where, "today"),
+                "title": self.txt(g.get("title"), where)}
+
+    def timeline(self, tl, where):
+        items = self._rows_or_items(tl, "items", ("date", "label", "note", "status", "state", "when"), where, "timeline")
+        if items is None:
+            return None
+        tl = tl if isinstance(tl, dict) else {}
+        out = []
+        for it in items:
+            if isinstance(it, str):
+                it = {"label": it}
+            state = str(it.get("state") or "").lower()
+            state = {"done": "done", u"完成": "done", u"已完成": "done", "current": "current", u"進行中": "current",
+                     "now": "current", "todo": "todo", u"未開始": "todo"}.get(state)
+            out.append({"date": self._date(it.get("date"), where, "date"), "label": self._terms(self.txt(it.get("label"), where) or ""),
+                        "note": self._terms(self.txt(it.get("note"), where) or ""), "when": self.txt(it.get("when"), where),
+                        "state": state, "status": status_key(it.get("status")) if it.get("status") else None})
+        if not out:
+            self.errors.append(u"%s：時程表沒有項目" % where)
+            return None
+        if len(out) > 8:
+            self.warnings.append(u"%s：時程表 %d 個節點偏多，建議 8 個內" % (where, len(out)))
+        return {"type": "timeline", "items": out, "today": self._date(tl.get("today"), where, "today"),
+                "even": bool(tl.get("even")), "title": self.txt(tl.get("title"), where)}
+
+    def process(self, pr, where):
+        items = self._rows_or_items(pr, "steps", ("title", "note", "owner", "state", "status"), where, "process")
+        if items is None:
+            return None
+        pr = pr if isinstance(pr, dict) else {}
+        steps = []
+        for it in items:
+            if isinstance(it, str):
+                it = {"title": it}
+            state = str(it.get("state") or "").lower()
+            state = {"done": "done", u"完成": "done", "current": "current", u"進行中": "current",
+                     "todo": "todo", u"未開始": "todo"}.get(state)
+            steps.append({"title": self._terms(self.txt(it.get("title"), where) or ""), "note": self._terms(self.txt(it.get("note"), where) or ""),
+                          "owner": self.txt(it.get("owner"), where) or "", "state": state,
+                          "status": status_key(it.get("status")) if it.get("status") else None})
+        if not steps:
+            self.errors.append(u"%s：流程沒有步驟" % where)
+            return None
+        if len(steps) > 6:
+            self.warnings.append(u"%s：流程 %d 步偏多，建議 6 步內（合併相近步驟）" % (where, len(steps)))
+        return {"type": "process", "steps": steps, "title": self.txt(pr.get("title"), where)}
+
+    def svg(self, sv, where):
+        title = None
+        if isinstance(sv, dict):
+            title = sv.get("title")
+            if sv.get("path"):
+                p = resolve_path(sv["path"])
+                if not p.exists():
+                    self.errors.append(u"%s：找不到 SVG 檔「%s」" % (where, sv["path"]))
+                    return None
+                markup = p.read_text(encoding="utf-8")
+            else:
+                markup = sv.get("svg") or sv.get("markup") or ""
+        else:
+            markup = sv
+        try:
+            root = parse_svg(markup)
+        except ValueError as e:
+            self.errors.append(u"%s：%s" % (where, e))
+            return None
+        for el in root.iter():  # {references} and term rules apply to the drawing's text, not its coordinates
+            if local(el.tag) in ("text", "tspan"):
+                if el.text and el.text.strip():
+                    el.text = self._terms(self.resolver.render(el.text, self.errors, where))
+                if el.tail and el.tail.strip():
+                    el.tail = self._terms(self.resolver.render(el.tail, self.errors, where))
+        return {"type": "svg", "svg": etree.tostring(root, encoding="unicode"), "title": self.txt(title, where)}
 
     def region(self, r, where):
         if not isinstance(r, dict):
@@ -343,7 +565,8 @@ class Build:
         raw_type = str(r.get("type", "")).strip()
         rtype = REGION_TYPES.get(raw_type.lower()) or REGION_TYPES.get(raw_type)
         if not rtype:
-            self.errors.append(u"%s：不認得區塊類型「%s」（可用：title/headline/bullets/text/kpi/chart/table/status/image/note）"
+            self.errors.append(u"%s：不認得區塊類型「%s」（可用：title/headline/bullets/text/kpi/chart/table/status/"
+                               u"gantt/timeline/process/svg/image/note）"
                                % (where, raw_type))
             return None
         try:
@@ -355,7 +578,7 @@ class Build:
         w, h = max(0.5, min(w, 12.0 - x)), max(0.5, min(h, 8.0 - y))
         content = r.get("content")
         if content is None:
-            for k in ("text", "bullets", "kpis", "chart", "table", "image", "status", "items", "value"):
+            for k in ("text", "bullets", "kpis", "chart", "table", "image", "status") + DIAGRAM_KEYS + ("items", "value"):
                 if k in r:
                     content = r[k]
                     break
@@ -380,6 +603,8 @@ class Build:
             block = self.image(content, where)
         elif rtype == "status":
             block = self.status(content, where)
+        elif rtype in DIAGRAM_KEYS:
+            block = getattr(self, rtype)(content, where)
         else:
             block = {"type": "note", "text": self.txt(str(content), where)}
         if block is None:
@@ -444,7 +669,8 @@ class Build:
                 paras += self.plain_paras(s["text"], where)
             blocks = [{"type": "text", "paras": paras}] if paras else []
             for key, fn in (("kpis", self.kpis), ("status", self.status), ("chart", self.chart), ("table", self.table),
-                            ("image", self.image)):
+                            ("gantt", self.gantt), ("timeline", self.timeline), ("process", self.process),
+                            ("svg", self.svg), ("images", self.images), ("image", self.image)):
                 if s.get(key):
                     b = fn(s[key], where)
                     if b:

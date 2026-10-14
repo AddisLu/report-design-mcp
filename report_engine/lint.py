@@ -159,8 +159,8 @@ def _check_slide(ctx, n, slide):
                 ratio = contrast(rgb, under)
                 if ratio < need:
                     ctx.add(n, "warn", u"「%s」文字與底色對比 %.1f:1，低於 %.1f:1" % (r.text[:10], ratio, need))
-        elif shp.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.CHART) or getattr(shp, "has_chart", False) \
-                or getattr(shp, "has_table", False):
+        elif shp.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.CHART, MSO_SHAPE_TYPE.GROUP) \
+                or getattr(shp, "has_chart", False) or getattr(shp, "has_table", False):
             content.append((box, h, shp))
             if getattr(shp, "has_table", False):
                 for row in shp.table.rows:

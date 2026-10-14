@@ -93,6 +93,18 @@ TOOL_DEFS = [
         },
     },
     {
+        "name": "view_image",
+        "description": (
+            u"查看要放進簡報的截圖或照片（可給檔案或資料夾）。圖片上疊了 0.1 間隔的格線與刻度，"
+            u"用來決定 image 的 highlights／zoom／crop 座標（0–1 比例）。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": u"圖片檔或資料夾（最多 8 張）"}},
+            "required": ["path"],
+        },
+    },
+    {
         "name": "read_sketch",
         "description": u"讀取手繪草稿頁面圖片（多頁 PDF、圖片或資料夾）。通常直接用 get_design_context 的 sketch 參數即可；頁數很多時用這個分批讀。",
         "inputSchema": {
@@ -234,6 +246,25 @@ def h_preview_deck(a):
     return {"content": content, "isError": False}
 
 
+def h_view_image(a):
+    from .images import grid_preview
+
+    p = resolve_path(a["path"])
+    exts = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff")
+    files = sorted(x for x in p.iterdir() if x.suffix.lower() in exts) if p.is_dir() else [p]
+    files = [f for f in files if f.exists()][:8]
+    if not files:
+        return _text(u"找不到圖片：%s" % a["path"], True)
+    lines, imgs = [u"下方圖片依序如下（紅線是 0.1 間隔格線，座標以原圖比例 0–1 表示，左上角是 0,0）："], []
+    for f in files:
+        g = grid_preview(f)
+        lines.append(u"- %s：%d×%d px" % (f, g["size"][0], g["size"][1]))
+        imgs.append({"type": "image", "data": g["data"], "mimeType": "image/jpeg"})
+    lines.append(u"用法：image 的 highlights 寫 {\"x\":0.14,\"y\":0.27,\"w\":0.8,\"h\":0.06,\"note\":\"…\"}；"
+                 u"系統截圖建議 style:\"browser\"。")
+    return {"content": [{"type": "text", "text": "\n".join(lines)}] + imgs, "isError": False}
+
+
 def h_read_sketch(a):
     pages = load_sketch_pages(a["path"], a.get("pages"))
     guide = (ENGINE_DIR / "guides" / "sketch_guide.md").read_text(encoding="utf-8")
@@ -309,6 +340,7 @@ HANDLERS = {
     "build_deck": h_build_deck,
     "patch_deck": h_patch_deck,
     "preview_deck": h_preview_deck,
+    "view_image": h_view_image,
     "read_sketch": h_read_sketch,
     "get_sketch_canvas": h_get_sketch_canvas,
     "save_layout": h_save_layout,

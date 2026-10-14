@@ -214,6 +214,76 @@ def test_design_system():
         check(imgs is None and err, "preview degrades gracefully without PowerPoint")
 
 
+def test_diagrams_svg_images():
+    from PIL import Image, ImageDraw
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from report_engine.svg import path_points
+
+    subs = path_points("M10 10 h 80 v 40 H 10 Z M 0 0 C 10 20 30 20 40 0 A 20 20 0 0 1 80 0 q 10 10 20 0")
+    check(len(subs) == 2 and subs[0][1] and len(subs[0][0]) == 4 and subs[1][0][-1] == (100.0, 0.0),
+          "SVG path parser: lines, curves, arcs, relative commands")
+    shot = os.path.join(TMP, "shot.png")
+    im = Image.new("RGB", (1400, 900), "white")
+    d = ImageDraw.Draw(im)
+    d.rectangle([40, 40, 1360, 860], fill="#F5F7FA")
+    d.rectangle([40, 40, 1360, 100], fill="#1A67A3")
+    for i in range(8):
+        d.rectangle([300, 160 + i * 70, 1300, 200 + i * 70], fill="#FFFFFF" if i % 2 else "#E9EDF2")
+    im.save(shot)
+    spec = {"title": "diagrams", "audience": "manager", "slides": [
+        {"layout": "custom", "title": "排程", "regions": [{"type": "甘特圖", "x": 0, "y": 1.3, "w": 12, "h": 6.7, "content": {
+            "today": "2026/10/14", "tasks": [
+                {"name": "設計", "start": "2026/08/01", "end": "2026/09/15", "progress": "100%", "group": "A"},
+                {"name": "開發", "start": "2026-09-10", "end": "2026-12-20", "progress": 45, "status": "延遲", "group": "A"},
+                {"name": "測試", "start": "2026/12/01", "end": "2027/01/10", "group": "B", "owner": "QA"}],
+            "milestones": [{"name": "上線", "date": "2027/01/20"}]}}]},
+        {"title": "時程", "timeline": {"today": "2026/10/14", "items": [
+            {"date": "2026/04/15", "label": "啟動"}, {"date": "2026/06/01", "label": "設計", "note": "審查通過"},
+            {"date": "2026/10/20", "label": "上線", "state": "current"}, {"date": "2026/12/15", "label": "結案"}]}},
+        {"title": "流程", "process": {"steps": [{"title": "需求", "state": "done"}, {"title": "開發", "state": "current",
+                                                                                   "status": "注意", "note": "人力不足"}, "測試"]}},
+        {"title": "架構", "svg": "<svg viewBox='0 0 870 380'><rect x='10' y='10' width='200' height='80' rx='8' "
+                                 "fill='primary'/><text x='110' y='55' text-anchor='middle' font-size='16' fill='white'>"
+                                 "專案數 {t1.count}</text><line x1='210' y1='50' x2='400' y2='50' stroke='neutral-500' "
+                                 "marker-end='url(#a)'/><circle cx='500' cy='50' r='40' fill='bad' opacity='0.5'/>"
+                                 "<path d='M 600 20 l 100 0 l -50 80 z' fill='#E07A1F'/></svg>",
+         "sources": []},
+        {"layout": "custom", "title": "截圖", "regions": [{"type": "截圖", "x": 0, "y": 1.3, "w": 12, "h": 6.7, "content": {
+            "path": shot, "style": "browser", "url": "openproject.example.com",
+            "highlights": [{"x": 0.2, "y": 0.25, "w": 0.7, "h": 0.06, "note": "延遲的工作項"}],
+            "zoom": {"x": 0.2, "y": 0.25, "w": 0.3, "h": 0.12}}}]},
+        {"title": "照片", "images": {"items": [{"path": shot, "caption": "A"}, {"path": shot, "caption": "B", "style": "shadow"}]}},
+    ], "sources": [CSV]}
+    res = deck.build(spec, os.path.join(TMP, "diagrams", "d.pptx"))
+    check(res["ok"], "diagram spec builds: %s" % res.get("errors"))
+    warns = [i for i in res["lint"]["issues"] if i["level"] == "warn"]
+    check(not warns, "diagram deck passes the layout lint: %s" % warns)
+    pres = Presentation(res["path"])
+    groups = [[s for s in sl.shapes if s.shape_type == MSO_SHAPE_TYPE.GROUP] for sl in pres.slides]
+    check([len(g) for g in groups] == [1, 1, 1, 1, 1, 2], "each drawing / image is one editable group")
+    names = [g[0].name for g in groups]
+    check(names == ["Gantt", "Timeline", "Process", "SVG", "Image", "Image"], "group names: %s" % names)
+
+    def group_text(g):
+        out = []
+        for sh in g.shapes:
+            if sh.has_text_frame:
+                out.append(sh.text_frame.text)
+        return " ".join(out)
+
+    check(u"今天 10/14" in group_text(groups[0][0]) and "45%" in group_text(groups[0][0]), "gantt: today tag + progress")
+    check(u"專案數 5" in group_text(groups[3][0]), "SVG text resolves {references}")
+    pics = [sh for sh in groups[4][0].shapes if sh.shape_type == MSO_SHAPE_TYPE.PICTURE]
+    check(len(pics) == 2 and pics[0].crop_left > 0, "screenshot trimmed (native crop) + zoom inset")
+    bad = deck.build({"audience": "manager", "slides": [
+        {"svg": "<svg><rect></svg>"}, {"gantt": {"tasks": [{"name": "x", "start": "明天", "end": "2026/1/1"}]}}]},
+        os.path.join(TMP, "diagrams"))
+    check(not bad["ok"] and len(bad["errors"]) == 2, "broken SVG / bad dates are reported: %s" % bad.get("errors"))
+    r = tools.h_view_image({"path": shot})
+    check(not r["isError"] and r["content"][1]["type"] == "image" and "1400×900" in r["content"][0]["text"],
+          "view_image returns a grid preview")
+
+
 def test_mcp_stdio():
     with open(EXAMPLE, encoding="utf-8") as f:
         spec = json.load(f)
@@ -232,7 +302,7 @@ def test_mcp_stdio():
     replies = [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line.strip()]
     check([r.get("id") for r in replies] == [1, 2, 3, 4], "one reply per request, none for the notification")
     check(replies[0]["result"]["serverInfo"]["name"] == "report-design", "initialize")
-    check(len(replies[1]["result"]["tools"]) == 8, "tools/list returns 8 tools")
+    check(len(replies[1]["result"]["tools"]) == 9, "tools/list returns 9 tools")
     ctx = replies[2]["result"]["content"][0]["text"]
     check("t1 ＝ sample_projects.csv" in ctx and "高階主管" in ctx, "context includes data and audience")
     check(u"視覺設計指引" in ctx and "preview_deck" in ctx, "context includes the visual design guide")
@@ -243,7 +313,7 @@ def test_mcp_stdio():
 if __name__ == "__main__":
     try:
         for fn in (test_facts, test_build_and_patch, test_overflow_and_layouts, test_errors,
-                   test_sketch_and_blueprint, test_design_system, test_mcp_stdio):
+                   test_sketch_and_blueprint, test_design_system, test_diagrams_svg_images, test_mcp_stdio):
             print("==", fn.__name__)
             fn()
         print("\nALL PASSED  (outputs in %s)" % TMP)
