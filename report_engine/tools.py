@@ -18,8 +18,9 @@ from .template_inspector import ensure_catalog
 
 SERVER_INSTRUCTIONS = (
     u"製作 PowerPoint 報告用。流程：1) get_design_context（audience、sources；有手繪草稿就帶 sketch）；"
-    u"2) 讀完直接寫出完整 spec 呼叫 build_deck；3) 呼叫 preview_deck 看每頁圖片與版面檢查，"
-    u"用 patch_deck 只修有問題的頁（自我檢查最多 2 輪）；4) 回報使用者。數字一律用 {t1…} 引用。"
+    u"2) 寫出完整 spec；有草稿、截圖或「找圖」需求時先呼叫 collect_assets 確認素材齊全（缺的請使用者補）；"
+    u"3) build_deck；4) preview_deck 看每頁圖片，用 patch_deck 只修有問題的頁（最多 2 輪）；"
+    u"5) review_deck 做整份的配色／字型／對齊／節奏總檢；6) 回報使用者。數字一律用 {t1…} 引用。"
 )
 
 _STR = {"type": "string"}
@@ -89,6 +90,34 @@ TOOL_DEFS = [
                 "path": {"type": "string", "description": u"build_deck 回傳的 .pptx（或 .spec.json）路徑"},
                 "slides": {"type": "string", "description": u"只看部分投影片，例如 1-6 或 2,5；一次最多 12 頁"},
             },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "collect_assets",
+        "description": (
+            u"動工前的素材盤點：不產生簡報，只檢查 spec 每頁的版面區塊與素材是否齊全（資料引用、截圖、照片），"
+            u"並在素材資料夾搜尋草稿上「找圖」的圖片，回傳版面計畫表、待補清單與候選圖縮圖。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "object", "additionalProperties": True,
+                         "description": u"完整 spec；還沒有的圖片寫 {\"need\":\"OpenProject 甘特圖截圖\",\"search\":[\"甘特\",\"gantt\"]}"},
+                "folders": {"type": "array", "items": _STR, "description": u"要搜尋的素材資料夾；省略時用 spec.asset_dirs、assets/、screenshots/ 等"},
+            },
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "review_deck",
+        "description": (
+            u"完稿前的美術總檢（整份簡報）：配色是否都在品牌色票內、字型、標題與內容對齊、連續頁版面是否單調、"
+            u"每頁顏色是否太花，並附上所有投影片的縮圖總覽（需本機 PowerPoint）。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": u".pptx 或 .spec.json 路徑"}},
             "required": ["path"],
         },
     },
@@ -202,11 +231,15 @@ def format_build(res) -> str:
         lines += [u"- " + w for w in res["warnings"][:25]]
         if len(res["warnings"]) > 25:
             lines.append(u"- …另有 %d 則" % (len(res["warnings"]) - 25))
+    if res.get("assets_needed"):
+        lines += ["", u"### 待補素材（%d）——投影片上放了待補框" % len(res["assets_needed"])]
+        lines += [u"- %s：%s" % (a["where"], a["need"]) for a in res["assets_needed"]]
+        lines.append(u"可用 collect_assets 搜尋素材資料夾，或請使用者提供檔案後用 patch_deck 補上 path。")
     if res.get("lint"):
         lines += ["", u"### " + format_lint(res["lint"])]
     lines += ["", u"下一步：呼叫 preview_deck(path=\"%s\") 看每頁圖片自我檢查（對照 get_design_context 的視覺設計指引），"
-                  u"只針對 ⚠ 項目與圖上看得到的問題用 patch_deck 修正，最多 2 輪；"
-                  u"之後把檔案路徑、註解解讀表與重要提醒簡短告訴使用者。" % res["path"]]
+                  u"只針對 ⚠ 項目與圖上看得到的問題用 patch_deck 修正，最多 2 輪；完成後呼叫 review_deck 做整份美術總檢，"
+                  u"再把檔案路徑、註解解讀表與重要提醒簡短告訴使用者。" % res["path"]]
     return "\n".join(lines)
 
 
@@ -227,10 +260,7 @@ def h_patch_deck(a):
 
 
 def h_preview_deck(a):
-    p = resolve_path(a["path"])
-    if p.suffix.lower() == ".json":
-        out = (C.read_json(p, {}) or {}).get("_output")
-        p = resolve_path(out) if out else p.with_suffix(".pptx")
+    p = _deck_path(a["path"])
     if not p.exists():
         return _text(u"找不到簡報：%s" % a["path"], True)
     res = lint_deck(p)
@@ -244,6 +274,40 @@ def h_preview_deck(a):
     content = [{"type": "text", "text": text}]
     content += [{"type": "image", "data": i["data"], "mimeType": "image/jpeg"} for i in imgs or []]
     return {"content": content, "isError": False}
+
+
+def h_collect_assets(a):
+    from .assets import collect
+
+    text, imgs = collect(_obj(a.get("spec")) or {}, _obj(a.get("folders")))
+    return {"content": [{"type": "text", "text": text}] + imgs, "isError": False}
+
+
+def _deck_path(raw):
+    p = resolve_path(raw)
+    if p.suffix.lower() == ".json":
+        out = (C.read_json(p, {}) or {}).get("_output")
+        p = resolve_path(out) if out else p.with_suffix(".pptx")
+    return p
+
+
+def h_review_deck(a):
+    from .review import format_review, overview_sheet, review_deck
+
+    p = _deck_path(a["path"])
+    if not p.exists():
+        return _text(u"找不到簡報：%s" % a["path"], True)
+    res = review_deck(p)
+    text = format_review(res)
+    sheet, err = overview_sheet(p, res["slide_count"])
+    content = []
+    if sheet:
+        text += u"\n\n下方是整份縮圖總覽：從遠處看整體——配色是否統一、每頁重心是否清楚、節奏是否有變化、" \
+                u"截圖與圖表風格是否一致。只修 ⚠ 項目與總覽中明顯不協調的頁（用 patch_deck）。"
+        content = [{"type": "image", "data": sheet, "mimeType": "image/jpeg"}]
+    else:
+        text += u"\n\n（沒有縮圖總覽：%s）" % (err or u"未知原因")
+    return {"content": [{"type": "text", "text": text}] + content, "isError": False}
 
 
 def h_view_image(a):
@@ -341,6 +405,8 @@ HANDLERS = {
     "patch_deck": h_patch_deck,
     "preview_deck": h_preview_deck,
     "view_image": h_view_image,
+    "collect_assets": h_collect_assets,
+    "review_deck": h_review_deck,
     "read_sketch": h_read_sketch,
     "get_sketch_canvas": h_get_sketch_canvas,
     "save_layout": h_save_layout,

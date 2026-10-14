@@ -38,11 +38,19 @@ def check(cond, msg):
     print("ok -", msg)
 
 
+def walk(shapes):
+    for shp in shapes:
+        yield shp
+        if shp.shape_type == 6:  # group
+            for sub in walk(shp.shapes):
+                yield sub
+
+
 def deck_texts(path):
     out = []
     for slide in Presentation(path).slides:
         parts = []
-        for shp in slide.shapes:
+        for shp in walk(slide.shapes):
             if shp.has_text_frame:
                 parts.append(shp.text_frame.text)
             if getattr(shp, "has_table", False) and shp.has_table:
@@ -127,7 +135,7 @@ def test_sketch_and_blueprint():
 def _run_sizes(path):
     sizes = set()
     for slide in Presentation(path).slides:
-        for shp in slide.shapes:
+        for shp in walk(slide.shapes):
             frames = []
             if shp.has_text_frame:
                 frames.append(shp.text_frame)
@@ -175,7 +183,8 @@ def test_design_system():
     with open(theme_file, "w", encoding="utf-8") as f:
         f.write(original)
 
-    for spec_path, n in ((MANAGER, 5), (BENCH, 9)):
+    showcase = os.path.join(ROOT, "design_system", "examples", "showcase_diagrams.json")
+    for spec_path, n in ((MANAGER, 5), (BENCH, 9), (showcase, 7)):
         with open(spec_path, encoding="utf-8") as f:
             spec = json.load(f)
         res = deck.build(spec, os.path.join(TMP, "ds_out", os.path.basename(spec_path) + ".pptx"),
@@ -186,6 +195,9 @@ def test_design_system():
         check(not warns, "%s passes the layout lint: %s" % (os.path.basename(spec_path), warns))
         off = _run_sizes(res["path"]) - set(th.steps)
         check(not off, "every font size comes from the type scale (off: %s)" % sorted(off))
+        if spec_path == BENCH:
+            bench_res = res
+    res = bench_res
     texts = deck_texts(res["path"])
     check(u"延遲" in texts[2] and u"王雅婷" in texts[2], "status block rendered from table")
     check(u"落後專案：原因與對策" in texts[5], "section slide rendered")
@@ -284,6 +296,47 @@ def test_diagrams_svg_images():
           "view_image returns a grid preview")
 
 
+def test_workflow_assets_review():
+    from PIL import Image
+    from report_engine.review import review_deck
+
+    adir = os.path.join(TMP, "assets", u"截圖")
+    os.makedirs(adir)
+    Image.new("RGB", (1600, 900), "#F5F7FA").save(os.path.join(adir, u"openproject_甘特圖_1014.png"))
+    Image.new("RGB", (1200, 800), "#8FB3D9").save(os.path.join(adir, u"現場照片_AOI設備.jpg"))
+    Image.new("RGB", (100, 100), "white").save(os.path.join(adir, "unrelated.png"))
+    spec = {"title": "workflow", "audience": "manager", "sources": [CSV], "asset_dirs": [os.path.join(TMP, "assets")],
+            "slides": [
+                {"layout": "custom", "title": "排程現況", "regions": [
+                    {"type": "截圖", "x": 0, "y": 1.3, "w": 8, "h": 6.7,
+                     "content": {"need": u"OpenProject 甘特圖截圖", "search": ["gantt", u"甘特"], "style": "browser"}},
+                    {"type": "bullets", "x": 8.4, "y": 1.6, "w": 3.6, "h": 6, "content": [u"專案數 {t1.count}"]}]},
+                {"title": "現場", "image": {"need": u"AOI 設備現場照片"}},
+                {"title": "資料錯誤", "bullets": ["{t1.不存在}"]}]}
+    from report_engine.assets import collect
+    text, imgs = collect(spec)
+    check(u"openproject_甘特圖_1014.png" in text and u"現場照片_AOI設備.jpg" in text and "unrelated" not in text,
+          "collect_assets finds candidate images by keyword")
+    check(imgs and imgs[0]["type"] == "image", "collect_assets returns a numbered contact sheet")
+    check(u"缺 1 項素材" in text and u"資料或寫法問題" in text, "plan table marks missing material + data errors")
+    spec["slides"] = spec["slides"][:2]
+    res = deck.build(spec, os.path.join(TMP, "workflow", "w.pptx"))
+    check(res["ok"] and len(res["assets_needed"]) == 2, "deck builds with placeholders for missing images")
+    check(u"待補圖片" in " ".join(deck_texts(res["path"])), "placeholder frame drawn on the slide")
+    with open(BENCH, encoding="utf-8") as f:
+        bench = json.load(f)
+    bres = deck.build(bench, os.path.join(TMP, "workflow", "bench.pptx"), base_dir=os.path.dirname(BENCH))
+    rv = review_deck(bres["path"])
+    check(not [i for i in rv["issues"] if i["level"] == "warn"], "review_deck: benchmark deck is on-palette and aligned")
+    odd = deck.build({"audience": "manager", "slides": [
+        {"title": "x", "svg": "<svg viewBox='0 0 100 50'><rect width='100' height='50' fill='#00FF66'/></svg>"}]},
+        os.path.join(TMP, "workflow", "odd.pptx"))
+    msgs = " ".join(i["msg"] for i in review_deck(odd["path"])["issues"])
+    check("00FF66" in msgs, "review_deck flags colours outside the brand palette")
+    r = tools.call_tool("review_deck", {"path": bres["path"]})
+    check(not r["isError"] and u"美術總檢" in r["content"][0]["text"], "review_deck tool")
+
+
 def test_mcp_stdio():
     with open(EXAMPLE, encoding="utf-8") as f:
         spec = json.load(f)
@@ -302,7 +355,7 @@ def test_mcp_stdio():
     replies = [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line.strip()]
     check([r.get("id") for r in replies] == [1, 2, 3, 4], "one reply per request, none for the notification")
     check(replies[0]["result"]["serverInfo"]["name"] == "report-design", "initialize")
-    check(len(replies[1]["result"]["tools"]) == 9, "tools/list returns 9 tools")
+    check(len(replies[1]["result"]["tools"]) == 11, "tools/list returns 11 tools")
     ctx = replies[2]["result"]["content"][0]["text"]
     check("t1 ＝ sample_projects.csv" in ctx and "高階主管" in ctx, "context includes data and audience")
     check(u"視覺設計指引" in ctx and "preview_deck" in ctx, "context includes the visual design guide")
@@ -313,7 +366,8 @@ def test_mcp_stdio():
 if __name__ == "__main__":
     try:
         for fn in (test_facts, test_build_and_patch, test_overflow_and_layouts, test_errors,
-                   test_sketch_and_blueprint, test_design_system, test_diagrams_svg_images, test_mcp_stdio):
+                   test_sketch_and_blueprint, test_design_system, test_diagrams_svg_images,
+                   test_workflow_assets_review, test_mcp_stdio):
             print("==", fn.__name__)
             fn()
         print("\nALL PASSED  (outputs in %s)" % TMP)

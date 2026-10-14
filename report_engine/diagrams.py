@@ -7,7 +7,7 @@ import math
 from pptx.enum.shapes import MSO_SHAPE
 
 from .canvas import EMU_PT, Canvas
-from .theme import mix
+from .theme import contrast, mix
 
 EMU_IN = 914400
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y%m%d", "%Y-%m", "%Y/%m")
@@ -320,13 +320,15 @@ def draw_process(r, slide, rect, b):
         if status in ("warn", "bad"):
             fill, fg = th.status(status), "FFFFFF"
         elif not explicit:
-            fill, fg = mix(th.primary, "FFFFFF", 0.5 * i / float(max(1, n - 1))), "FFFFFF"
+            fill, fg = mix(th.primary, "FFFFFF", 0.35 * i / float(max(1, n - 1))), "FFFFFF"
         elif state == "done":
             fill, fg = th.primary, "FFFFFF"
         elif state == "current":
             fill, fg = th.secondary, "FFFFFF"
         else:
             fill, fg = th.neutral(100), th.neutral(700)
+        if fg == "FFFFFF" and contrast(fg, fill) < 4.5:
+            fg = th.neutral(900)  # light fills (tints, amber) get dark text
         kind = MSO_SHAPE.PENTAGON if i == 0 else MSO_SHAPE.CHEVRON
         shp = cv.autoshape(kind, sx, top, cw, chev_h, fill=fill, adjust=point / float(chev_h))
         cv.text(0, 0, s["title"], title_size, color=fg, bold=True, align="middle", shape=shp)

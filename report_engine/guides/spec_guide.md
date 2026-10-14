@@ -7,6 +7,7 @@
   "sources": ["data/Q3.xlsx"],            // 和 get_design_context 用的一樣，表格 id（t1…）才會一致
   "author": "專案管理部",                 // 選填：封面下方的署名
   "date": "2026/10/14",                   // 選填：封面日期
+  "asset_dirs": ["assets", "D:/專案截圖"],  // 選填：collect_assets 找圖的資料夾
   "directive": "需求頁的整體說明（選填）",
   "facts": {"gap": "=t1[代號=B].目標進度 - t1[代號=B].實際進度"},   // 選填：具名數字
   "annotations": [{"page": 1, "raw": "需求頁的手寫", "applied": "怎麼套用"}],
@@ -81,6 +82,8 @@
 - `highlights`：在截圖上框出重點（x,y,w,h 是原圖的比例 0–1 或像素），有 note 會自動編號並在右側列出說明
 - `zoom`：把一小塊放大成子畫面（size＝子畫面寬度占圖片的比例，預設 0.42）
 - `fit:"cover"`：填滿區塊（裁掉多餘部分）；解析度太低會提醒
+- **還沒有圖時**：`{"need":"OpenProject 甘特圖截圖","search":["gantt","甘特"],"style":"browser"}` → collect_assets 會在素材資料夾找候選圖；直接 build 會放「待補圖片」框
+- 要框重點前先用 `view_image` 看圖（有 0.1 格線），座標照格線讀
 
 ### region type（custom 用，座標是 12×8 格線，和草稿底圖相同）
 `title`標題 · `headline`結論 · `bullets`重點 · `text`文字 · `kpi` · `chart`圖 · `table`表 · `status`狀態燈 · `gantt`甘特圖 · `timeline`時程表 · `process`流程 · `svg`示意圖 · `image`圖片／截圖 · `images`圖組 · `note`備註

@@ -94,6 +94,7 @@ class Build:
         self.errors.extend(self.bundle.errors)
         self.resolver = Resolver(self.bundle.tables, spec.get("facts") or {})
         self.blueprints = C.load_blueprints()
+        self.assets_needed = []
 
     # -- text -----------------------------------------------------------
     def _lint(self, raw, where):
@@ -346,8 +347,14 @@ class Build:
         path = spec.get("path")
         p = resolve_path(path) if path else None
         if p is None or not p.exists():
-            self.warnings.append(u"%s：找不到圖片「%s」，先放文字占位" % (where, path))
-            return {"type": "note", "text": u"[圖片：%s]" % (path or "")}
+            need = self.txt(spec.get("need"), where) or (u"找不到圖片「%s」" % path if path else u"待補圖片")
+            if path:
+                self.warnings.append(u"%s：找不到圖片「%s」，先放待補框" % (where, path))
+            search = spec.get("search") or []
+            item = {"where": where, "need": need, "search": [search] if isinstance(search, str) else list(search),
+                    "path": path, "style": spec.get("style")}
+            self.assets_needed.append(item)
+            return {"type": "placeholder", "need": need, "caption": self.txt(spec.get("caption"), where)}
         if p.suffix.lower() == ".svg":  # vector art becomes editable shapes
             return self.svg({"path": str(p), "title": spec.get("title")}, where)
         style = str(spec.get("style") or "card").lower()
@@ -734,9 +741,8 @@ def _save(renderer, path: Path) -> Path:
     raise PermissionError("無法寫入 %s（檔案可能正在 PowerPoint 開啟）" % path)
 
 
-def build(spec, out_path=None, base_dir=None) -> dict:
-    if not isinstance(spec, dict) or not isinstance(spec.get("slides"), list) or not spec["slides"]:
-        return {"ok": False, "errors": [u"spec 需要是物件，且 slides 至少一頁"], "warnings": []}
+def prepare(spec, base_dir=None):
+    """Parse and validate a spec without rendering -> (Build, normalized slides)."""
     b = Build(spec, base_dir)
     nslides = []
     for i, s in enumerate(spec["slides"], 1):
@@ -753,6 +759,13 @@ def build(spec, out_path=None, base_dir=None) -> dict:
     ms = b.aud.get("max_slides")
     if ms and len(nslides) > int(ms):
         b.warnings.append(u"共 %d 頁，超過「%s」建議的 %s 頁" % (len(nslides), b.aud.get("name", b.aud_key), ms))
+    return b, nslides
+
+
+def build(spec, out_path=None, base_dir=None) -> dict:
+    if not isinstance(spec, dict) or not isinstance(spec.get("slides"), list) or not spec["slides"]:
+        return {"ok": False, "errors": [u"spec 需要是物件，且 slides 至少一頁"], "warnings": []}
+    b, nslides = prepare(spec, base_dir)
     if b.errors:
         return {"ok": False, "errors": b.errors, "warnings": b.warnings}
 
@@ -804,7 +817,7 @@ def build(spec, out_path=None, base_dir=None) -> dict:
         lint = lint_deck(saved, b.cfg)
     except Exception as e:  # lint must never block delivering the deck
         lint = {"slide_count": len(r.prs.slides), "issues": [{"slide": 0, "level": "info", "msg": u"版面檢查失敗：%s" % e}]}
-    return {"ok": True, "lint": lint, "path": str(saved), "spec_path": str(spec_path), "slide_count": len(r.prs.slides),
+    return {"ok": True, "lint": lint, "assets_needed": b.assets_needed, "path": str(saved), "spec_path": str(spec_path), "slide_count": len(r.prs.slides),
             "template": str(template), "audience": b.aud_key, "mapping": mapping,
             "annotations": annotations, "warnings": b.warnings}
 

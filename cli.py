@@ -5,6 +5,8 @@
   python cli.py build spec.json [-o output/]
   python cli.py patch output/x.spec.json patch.json
   python cli.py preview output/x.pptx [--slides 1-6] [--out output/preview]
+  python cli.py assets spec.json [--folders assets screenshots] [--out output/candidates.jpg]
+  python cli.py review output/x.pptx [--out output/overview.jpg]
   python cli.py canvas sketches/canvas.pdf --pages 6
   python cli.py inspect design_system/templates/company.pptx --set-default
 """
@@ -52,6 +54,15 @@ def main(argv=None):
     pv.add_argument("--slides")
     pv.add_argument("--out", help="folder to save the slide images")
 
+    sa = sub.add_parser("assets", help="layout plan + missing material + candidate images (before building)")
+    sa.add_argument("spec")
+    sa.add_argument("--folders", nargs="*")
+    sa.add_argument("--out", help="save the candidate contact sheet here")
+
+    rv = sub.add_parser("review", help="whole-deck art review (palette, fonts, alignment, rhythm)")
+    rv.add_argument("pptx")
+    rv.add_argument("--out", help="save the thumbnail overview here (needs PowerPoint on Windows)")
+
     v = sub.add_parser("canvas", help="make a 12x8 grid canvas for the drawing tablet")
     v.add_argument("out")
     v.add_argument("--pages", type=int, default=6)
@@ -98,6 +109,31 @@ def main(argv=None):
             print("\n[%d slide images saved to %s]" % (len(imgs), d))
         elif not imgs:
             print("\n[no images: %s]" % err)
+        return 0
+    if a.cmd == "assets":
+        from report_engine.assets import collect
+
+        spec_file = Path(a.spec)
+        text, imgs = collect(json.loads(spec_file.read_text(encoding="utf-8")), a.folders,
+                             base_dir=spec_file.resolve().parent)
+        print(text)
+        if imgs and a.out:
+            Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(a.out).write_bytes(base64.b64decode(imgs[0]["data"]))
+            print("\n[candidate sheet saved to %s]" % a.out)
+        return 0
+    if a.cmd == "review":
+        from report_engine.review import format_review, overview_sheet, review_deck
+
+        res = review_deck(a.pptx)
+        print(format_review(res))
+        sheet, err = overview_sheet(a.pptx, res["slide_count"])
+        if sheet and a.out:
+            Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(a.out).write_bytes(base64.b64decode(sheet))
+            print("\n[overview saved to %s]" % a.out)
+        elif not sheet:
+            print("\n[no overview: %s]" % err)
         return 0
     if a.cmd == "canvas":
         for path in make_canvas(a.out, a.pages, not a.no_requirements):

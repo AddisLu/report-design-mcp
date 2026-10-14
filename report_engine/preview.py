@@ -53,7 +53,7 @@ def available() -> bool:
     return _powershell() is not None
 
 
-def export_images(pptx_path, slides: Optional[str] = None, total: int = 0, max_edge: int = 1280):
+def export_images(pptx_path, slides: Optional[str] = None, total: int = 0, max_edge: int = 1280, limit: int = MAX_SLIDES):
     """-> (list of {"slide": n, "data": base64 jpeg}, error message or "")."""
     ps = _powershell()
     if ps is None:
@@ -61,8 +61,7 @@ def export_images(pptx_path, slides: Optional[str] = None, total: int = 0, max_e
     idx = [i + 1 for i in parse_pages(slides, total)] if total else []
     if not idx:
         return [], u"沒有要預覽的投影片"
-    if len(idx) > MAX_SLIDES:
-        idx = idx[:MAX_SLIDES]
+    idx = idx[:limit]
     tmp = Path(tempfile.mkdtemp(prefix="report_preview_"))
     script = tmp / "export.ps1"
     script.write_text(_PS, encoding="utf-8-sig")  # BOM so Windows PowerShell 5 reads it as UTF-8

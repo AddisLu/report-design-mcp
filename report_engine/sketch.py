@@ -51,7 +51,8 @@ def _layout_page() -> Image.Image:
     if cjk:
         head = u"類型：版面 ／ 需求 ／ ×每個______"
         page = u"頁碼 P____"
-        legend = u"黑筆＝版面框線，框內寫類型：標題／結論／KPI／圖／表／重點／圖片／備註　　紅筆＝註解（不會印到投影片）"
+        legend = (u"黑筆＝框線＋類型：標題／結論／KPI／圖／表／重點／燈號／甘特圖／時程／流程／示意圖／截圖／照片／簡介　　"
+                  u"紅筆＝註解（找圖：關鍵字、截 OpenProject…，不會印到投影片）")
     else:
         head, page, legend = "TYPE: layout / requirements / x each ____", "PAGE P____", \
             "Black pen = layout boxes (write the type inside)   Red pen = notes (never printed)"
@@ -68,7 +69,8 @@ def _requirements_page() -> Image.Image:
     small, _ = _font(22)
     if cjk:
         title = u"需求（這頁不會變成投影片）"
-        fields = [u"受眾（主管／經理／工程師）", u"報告目的", u"資料來源（檔案、OpenProject 專案）", u"一定要講的重點", u"其他要求"]
+        fields = [u"受眾（主管／經理／工程師）", u"報告目的", u"資料來源（檔案、OpenProject 專案）",
+                  u"一定要講的重點", u"素材（要貼的截圖、照片、去哪裡找）", u"其他要求（配色、風格）"]
     else:
         title = "REQUIREMENTS (not a slide)"
         fields = ["Audience", "Purpose", "Data sources", "Must-say points", "Other"]

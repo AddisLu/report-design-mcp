@@ -14,7 +14,11 @@
 | 文字放不下、用語、空泛詞、數字來源 | `build_deck` 自動修正或提醒 |
 | 溢出、重疊、對比不足、版面太空太密 | `preview_deck` 版面檢查＋每頁圖片，模型自己修 |
 
-流程：`get_design_context` → `build_deck` → `preview_deck`（看圖自檢）→ 需要時 `patch_deck`。
+流程（和設計師接案一樣分四段）：
+1. **需求與排版**：手寫板畫草稿（哪裡放甘特圖、哪裡只給簡介、哪裡要找圖）→ `get_design_context`
+2. **素材盤點**：`collect_assets` 列出版面計畫與待補素材，並在素材資料夾找候選圖（缺的請你補）
+3. **動工**：`build_deck` → `preview_deck` 看圖自檢 → `patch_deck`
+4. **美術總檢**：`review_deck` 檢查整份配色、字型、對齊、節奏，附全部縮圖總覽
 
 📘 **完整使用說明：[docs/使用說明.md](docs/使用說明.md)**，內容包含安裝、Copilot 設定、手繪草稿畫法、修改、自訂與疑難排解。
 
@@ -39,7 +43,7 @@ python -m venv .venv
 
 ## 掛到 GitHub Copilot（VS Code）
 1. 用 VS Code 開啟這個資料夾。`.vscode/mcp.json` 已經設定好 `report-design` server。
-2. Copilot Chat 切到 **Agent** 模式，在工具清單中確認有 `report-design` 的 8 個工具。
+2. Copilot Chat 切到 **Agent** 模式，在工具清單中確認有 `report-design` 的 11 個工具。
 3. `.github/copilot-instructions.md` 會自動套用工作流程；`.github/prompts/` 裡有 3 個一鍵 prompt：`/report-from-sketch`、`/exec-report`、`/project-review-mgr`。
 
 想在其他專案資料夾也能使用：把 `.vscode/mcp.json` 的路徑改成絕對路徑，例如 `C:/Coding/report-design-mcp/.venv/Scripts/python.exe`，再放到該專案的 `.vscode/` 或 VS Code 使用者設定中。
@@ -87,10 +91,28 @@ copy 公司範本.pptx design_system\templates\
 | `build_deck` | spec → 檢查＋自動修正＋產出 .pptx（同時存 .spec.json） |
 | `patch_deck` | 只改指定頁，再重新產出 |
 | `preview_deck` | 版面檢查（溢出、重疊、對比、字級、太空太密）＋每頁圖片（本機 PowerPoint 匯出），讓模型看圖修正 |
+| `collect_assets` | 動工前的素材盤點：版面計畫表、待補素材、在素材資料夾找候選圖（附編號縮圖） |
+| `review_deck` | 完稿美術總檢：色票、字型、對齊、版面節奏、顏色太花，附整份縮圖總覽 |
+| `view_image` | 看截圖／照片（疊 0.1 格線），決定要框出的重點與放大位置 |
 | `read_sketch` | 草稿頁數很多時分批讀取 |
 | `get_sketch_canvas` | 產生格線底稿 PDF／PNG |
 | `save_layout` | 把草稿版型存成可重複使用的版型 |
 | `inspect_template` | 解析新範本、設為預設 |
+
+## 元件一覽（都是原生 PowerPoint，可再編輯）
+| 類型 | 用途 |
+|---|---|
+| `kpis`、`status` | KPI 卡（漲跌自動上色）、紅黃綠燈清單 |
+| `chart`、`table` | 圖表（基準灰、重點 highlight）、表格 |
+| `gantt` | 甘特圖：分組、完成度、延遲變色、里程碑、今天線；可直接吃 OpenProject 匯出表 |
+| `timeline` | 時程表：已完成／進行中／未開始，節點多時上下交錯 |
+| `process` | 流程（箭頭）：目前步驟、卡住的步驟變色、說明與負責人 |
+| `svg` | 模型自己畫架構圖、關係圖、矩陣…，轉成可編輯圖形並套品牌色 |
+| `image`、`images` | 截圖美化：卡片／瀏覽器外框、自動去白邊、編號框選＋說明、局部放大、圖說；多圖網格 |
+
+`design_system/examples/showcase_diagrams.json` 是全部特殊元件的範例（下圖為 Linux 上 LibreOffice 的渲染，中文字型以替代字型顯示）：
+
+![特殊圖表與截圖展示](docs/showcase.jpg)
 
 ## 資料來源
 `.xlsx` `.xlsm` `.csv` `.tsv`（表格 → `t1`、`t2`…，可用 `{}` 引用）；`.docx` `.pptx` `.pdf` `.md` `.txt`（文字 → `d1`…；其中的表格與 PPT 圖表資料也會轉成 `t#`）。也可以直接給資料夾。CSV 會自動判斷 UTF-8／Big5（cp950）編碼。

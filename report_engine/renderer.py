@@ -604,6 +604,9 @@ class DeckRenderer:
         elif t == "images":
             from .images import draw_gallery
             draw_gallery(self, slide, rect, block)
+        elif t == "placeholder":
+            from .images import draw_placeholder
+            draw_placeholder(self, slide, rect, block)
 
     def _textbox(self, slide, rect, anchor=MSO_ANCHOR.TOP):
         x, y, w, h = rect
@@ -698,10 +701,12 @@ class DeckRenderer:
             val = plain_text(it["value"])
             vsize = min(vsize, avail / 1.2, w_pt * 0.95 / max(em_width(val), 1.0))
         vsize = self.theme.snap(max(vsize, 16.0))
+        grp = slide.shapes.add_group_shape()  # a group has .shapes too, so the card code draws straight into it
+        grp.name = "KPI"
         for i, it in enumerate(items):
             cx = x + (i % cols) * (cw + g)
             cy = y + (i // cols) * (ch + g)
-            self._kpi_card(slide, (cx, cy, cw, ch), it, vsize, lsize, pad, tick)
+            self._kpi_card(grp, (cx, cy, cw, ch), it, vsize, lsize, pad, tick)
 
     def _kpi_card(self, slide, rect, it, vsize, lsize, pad, tick) -> None:
         x, y, w, h = rect
@@ -761,6 +766,8 @@ class DeckRenderer:
         name_w = int((w - pill_w - owner_w) * (0.36 if has_note else 1.0))
         note_w = w - pill_w - owner_w - name_w
         dot = int(size * 0.62 * EMU_PT)
+        slide = slide.shapes.add_group_shape()
+        slide.name = "Status"
         for i, it in enumerate(items):
             ry = int(y + i * row_h)
             key = it.get("status")

@@ -99,6 +99,53 @@ def _text_items(ctx, shp):
     return items
 
 
+def _check_runs(ctx, n, shp, box, fill, surfaces, bg):
+    """Font sizes and text/background contrast for one text shape."""
+    x, y, w, h = box
+    for p, r in _runs(shp.text_frame):
+        if r.font.size is not None:
+            ctx.sizes[r.font.size.pt] += len(r.text)
+            if r.font.size.pt < 9:
+                ctx.add(n, "warn", u"「%s」字級 %.0fpt 太小" % (r.text[:10], r.font.size.pt))
+        rgb = _run_rgb(r)
+        if not rgb or not r.text.strip():
+            continue
+        under = fill
+        if under is None:
+            cx, cy = x + w // 2, y + h // 2
+            for (sx, sy, sw_, sh_), sf in surfaces:
+                if sx <= cx <= sx + sw_ and sy <= cy <= sy + sh_:
+                    under = sf
+        if under is None:
+            under = bg or "FFFFFF"
+        big = (r.font.size.pt if r.font.size else _default_size(ctx, shp)) >= 18
+        need = 3.0 if big else 4.5
+        ratio = contrast(rgb, under)
+        if ratio < need:
+            ctx.add(n, "warn", u"「%s」文字與底色對比 %.1f:1，低於 %.1f:1" % (r.text[:10], ratio, need))
+
+
+def _check_group(ctx, n, grp, bg):
+    """Text inside a drawing / card group: sizes and contrast against the group's own surfaces."""
+    surfaces, texts, chars = [], [], 0
+    for shp in grp.shapes:
+        box = _box(shp)
+        if box is None:
+            continue
+        if shp.shape_type == MSO_SHAPE_TYPE.GROUP:
+            chars += _check_group(ctx, n, shp, bg)
+            continue
+        fill = _solid_rgb(shp._element.find(qn("p:spPr"))) if shp.shape_type != MSO_SHAPE_TYPE.PICTURE else None
+        if shp.has_text_frame and shp.text_frame.text.strip():
+            texts.append((shp, box, fill))
+        elif fill:
+            surfaces.append((box, fill))
+    for shp, box, fill in texts:
+        chars += len(plain_text(shp.text_frame.text))
+        _check_runs(ctx, n, shp, box, fill, surfaces, bg)
+    return chars
+
+
 def _check_slide(ctx, n, slide):
     sw, sh = ctx.sw, ctx.sh
     bg = _layout_bg(slide)
@@ -138,30 +185,12 @@ def _check_slide(ctx, n, slide):
                 ctx.add(n, "warn", u"「%s」文字可能超出框（估計需要 %.1f 吋，框高 %.1f 吋）"
                         % (text[:12], est / EMU_IN, h / float(EMU_IN)))
             content.append((box, min(h, est + mt), shp))
-            for p, r in _runs(tf):
-                if r.font.size is not None:
-                    ctx.sizes[r.font.size.pt] += len(r.text)
-                    if r.font.size.pt < 9:
-                        ctx.add(n, "warn", u"「%s」字級 %.0fpt 太小" % (r.text[:10], r.font.size.pt))
-                rgb = _run_rgb(r)
-                if not rgb or not r.text.strip():
-                    continue
-                under = fill
-                if under is None:
-                    cx, cy = x + w // 2, y + h // 2
-                    for (sx, sy, sw_, sh_), sf in surfaces:
-                        if sx <= cx <= sx + sw_ and sy <= cy <= sy + sh_:
-                            under = sf
-                if under is None:
-                    under = bg or "FFFFFF"
-                big = (r.font.size.pt if r.font.size else _default_size(ctx, shp)) >= 18
-                need = 3.0 if big else 4.5
-                ratio = contrast(rgb, under)
-                if ratio < need:
-                    ctx.add(n, "warn", u"「%s」文字與底色對比 %.1f:1，低於 %.1f:1" % (r.text[:10], ratio, need))
+            _check_runs(ctx, n, shp, box, fill, surfaces, bg)
         elif shp.shape_type in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.CHART, MSO_SHAPE_TYPE.GROUP) \
                 or getattr(shp, "has_chart", False) or getattr(shp, "has_table", False):
             content.append((box, h, shp))
+            if shp.shape_type == MSO_SHAPE_TYPE.GROUP:
+                chars += _check_group(ctx, n, shp, bg)
             if getattr(shp, "has_table", False):
                 for row in shp.table.rows:
                     for cell in row.cells:

@@ -270,3 +270,16 @@ def grid_preview(path, max_edge=1280):
             d.text(pos, label, fill=(220, 0, 60, 255))
     out = Image.alpha_composite(base.convert("RGBA"), ov).convert("RGB")
     return {"size": size, "data": _encode(out, max_edge)}
+
+
+def draw_placeholder(r, slide, rect, b):
+    """Tidy "material still needed" frame, so a half-collected deck still reads well in review."""
+    th = r.theme
+    x, y, w, h = rect
+    cv = Canvas(r, slide, "Placeholder")
+    cv.rect(x, y, w, h, fill=th.neutral(50), stroke=th.neutral(300), width=1.25, dash=True, radius=EMU_PT * 6)
+    size = th.snap(th.size("body", 2))
+    cv.text(x + w / 2.0, y + h / 2.0 - size * EMU_PT * 0.9, u"待補圖片", th.snap(size + 2), color=th.neutral(500),
+            bold=True, align="middle", valign="middle")
+    cv.text(x + w / 2.0, y + h / 2.0 + size * EMU_PT * 0.6, b.get("need") or "", size, color=th.neutral(500),
+            align="middle", valign="top", width=w * 0.8, wrap=True, height=size * EMU_PT * 3)
