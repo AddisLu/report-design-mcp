@@ -7,6 +7,11 @@
   python cli.py preview output/x.pptx [--slides 1-6] [--out output/preview]
   python cli.py assets spec.json [--folders assets screenshots] [--out output/candidates.jpg]
   python cli.py review output/x.pptx [--out output/overview.jpg]
+  python cli.py feedback output/x.pptx            (read PowerPoint comments + manual edits)
+  python cli.py style 公司舊簡報.pptx [--apply]     (learn palette / fonts / logo into theme.yaml)
+  python cli.py example output/x.spec.json Q3月報   (save an approved deck as an example)
+  python cli.py pdf output/x.pptx
+  python cli.py doctor
   python cli.py canvas sketches/canvas.pdf --pages 6
   python cli.py inspect design_system/templates/company.pptx --set-default
 """
@@ -62,6 +67,19 @@ def main(argv=None):
     rv = sub.add_parser("review", help="whole-deck art review (palette, fonts, alignment, rhythm)")
     rv.add_argument("pptx")
     rv.add_argument("--out", help="save the thumbnail overview here (needs PowerPoint on Windows)")
+
+    fb = sub.add_parser("feedback", help="read PowerPoint comments and manual edits")
+    fb.add_argument("pptx")
+    st = sub.add_parser("style", help="learn brand palette/fonts/logo from a company deck")
+    st.add_argument("pptx")
+    st.add_argument("--apply", action="store_true")
+    st.add_argument("--out", help="save the swatch image here")
+    ex = sub.add_parser("example", help="save an approved deck's spec as an example")
+    ex.add_argument("spec_path")
+    ex.add_argument("name")
+    pd = sub.add_parser("pdf", help="export a deck to PDF with PowerPoint")
+    pd.add_argument("pptx")
+    sub.add_parser("doctor", help="check Python, packages, fonts, PowerPoint and the design system")
 
     v = sub.add_parser("canvas", help="make a 12x8 grid canvas for the drawing tablet")
     v.add_argument("out")
@@ -134,6 +152,33 @@ def main(argv=None):
             print("\n[overview saved to %s]" % a.out)
         elif not sheet:
             print("\n[no overview: %s]" % err)
+        return 0
+    if a.cmd == "feedback":
+        r = tools.h_read_feedback({"path": a.pptx})
+        print(r["content"][0]["text"])
+        return 1 if r["isError"] else 0
+    if a.cmd == "style":
+        from report_engine.style_import import import_style
+
+        text, img = import_style(a.pptx, apply=a.apply)
+        print(text)
+        if a.out:
+            Path(a.out).write_bytes(base64.b64decode(img))
+        return 0
+    if a.cmd == "example":
+        r = tools.h_save_example({"spec_path": a.spec_path, "name": a.name})
+        print(r["content"][0]["text"])
+        return 1 if r["isError"] else 0
+    if a.cmd == "pdf":
+        from report_engine.preview import export_pdf
+
+        path, err = export_pdf(a.pptx)
+        print(path or err)
+        return 0 if path else 1
+    if a.cmd == "doctor":
+        from report_engine.doctor import report
+
+        print(report())
         return 0
     if a.cmd == "canvas":
         for path in make_canvas(a.out, a.pages, not a.no_requirements):

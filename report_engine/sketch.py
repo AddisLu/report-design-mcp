@@ -18,7 +18,8 @@ IMG_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 FONT_CANDIDATES = [
     "C:/Windows/Fonts/msjh.ttc", "C:/Windows/Fonts/msjhl.ttc", "C:/Windows/Fonts/mingliu.ttc",
     "C:/Windows/Fonts/msyh.ttc", "/System/Library/Fonts/PingFang.ttc",
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
 ]
 GRAY = (140, 146, 156)
 

@@ -14,7 +14,7 @@ from pptx.dml.color import RGBColor
 from pptx.oxml.ns import qn
 from pptx.util import Emu
 
-from .canvas import EMU_PT, Canvas, resolve_color
+from .canvas import EMU_PT, Canvas, resolve_color, set_alt
 
 EMU_IN = 914400
 DOTS = ("FF5F57", "FEBC2E", "28C840")
@@ -153,6 +153,11 @@ def draw_image(r, slide, rect, b):
             pill = cv.rect(px + (dw - uw) / 2.0, py - bar_h * 0.78, uw, bar_h * 0.56, fill="FFFFFF", radius=bar_h * 0.28)
             cv.text(0, 0, b["url"], max(9.0, min(11.0, bar_h * 0.3 / EMU_PT)), color=th.neutral(500), shape=pill)
     pic = _add_picture(cv.shapes, path, px, py, dw, dh, (cl, ct, cr, cb), iw, ih)
+    name = str(path).replace("\\", "/").split("/")[-1]
+    alt = b.get("caption") or (u"系統畫面截圖（%s）" % b["url"] if b.get("url") else u"圖片：%s" % name)
+    notes_alt = u"；".join(hl["note"] for hl in b.get("highlights") or [] if hl.get("note"))
+    set_alt(pic, alt)
+    set_alt(cv.group, alt + (u"。標示重點：" + notes_alt if notes_alt else ""))
     if style == "card":
         _round_and_shadow(pic, radius, border=th.neutral(300))
     elif style == "shadow":
@@ -277,6 +282,7 @@ def draw_placeholder(r, slide, rect, b):
     th = r.theme
     x, y, w, h = rect
     cv = Canvas(r, slide, "Placeholder")
+    set_alt(cv.group, u"待補圖片：" + (b.get("need") or ""))
     cv.rect(x, y, w, h, fill=th.neutral(50), stroke=th.neutral(300), width=1.25, dash=True, radius=EMU_PT * 6)
     size = th.snap(th.size("body", 2))
     cv.text(x + w / 2.0, y + h / 2.0 - size * EMU_PT * 0.9, u"待補圖片", th.snap(size + 2), color=th.neutral(500),

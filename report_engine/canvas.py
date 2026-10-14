@@ -73,6 +73,15 @@ def resolve_color(value, theme):
     return NAMED.get(key)
 
 
+def set_alt(shape, text):
+    """Alternative text (cNvPr@descr) for screen readers, search and PowerPoint's accessibility checker."""
+    from .renderer import plain_text
+
+    t = " ".join(plain_text(str(text or "")).split())
+    if shape is not None and t:
+        shape._element._nvXxPr.cNvPr.set("descr", t[:600])
+
+
 def _alpha(color_el, alpha):
     if alpha is None or alpha >= 0.999 or color_el is None:
         return

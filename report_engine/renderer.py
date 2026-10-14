@@ -703,6 +703,9 @@ class DeckRenderer:
         vsize = self.theme.snap(max(vsize, 16.0))
         grp = slide.shapes.add_group_shape()  # a group has .shapes too, so the card code draws straight into it
         grp.name = "KPI"
+        from .canvas import set_alt
+        set_alt(grp, u"關鍵指標：" + u"；".join(u"%s %s%s" % (it.get("label") or "", it["value"],
+                                                          u"（%s）" % it["delta"] if it.get("delta") else "") for it in items))
         for i, it in enumerate(items):
             cx = x + (i % cols) * (cw + g)
             cy = y + (i // cols) * (ch + g)
@@ -768,6 +771,8 @@ class DeckRenderer:
         dot = int(size * 0.62 * EMU_PT)
         slide = slide.shapes.add_group_shape()
         slide.name = "Status"
+        from .canvas import set_alt
+        set_alt(slide, u"狀態清單：" + u"；".join(u"%s %s" % (it.get("name") or "", it.get("label") or "") for it in items))
         for i, it in enumerate(items):
             ry = int(y + i * row_h)
             key = it.get("status")
@@ -824,7 +829,12 @@ class DeckRenderer:
         data.categories = [str(c) for c in b["categories"]]
         for s in series:
             data.add_series(str(s["name"] or " "), [None if v is None else float(v) for v in s["values"]])
-        chart = slide.shapes.add_chart(CHART_MAP[ctype], Emu(x), Emu(y), Emu(w), Emu(h), data).chart
+        frame = slide.shapes.add_chart(CHART_MAP[ctype], Emu(x), Emu(y), Emu(w), Emu(h), data)
+        from .canvas import set_alt
+        set_alt(frame, u"%s圖表（%s）：數列 %s；類別 %s%s" % (
+            (plain_text(b["title"]) + u"，") if b.get("title") else "", ctype, u"、".join(str(s["name"]) for s in series),
+            u"、".join(str(c) for c in b["categories"][:8]), u"…" if len(b["categories"]) > 8 else ""))
+        chart = frame.chart
         th = self.theme
         chart.font.size = Pt(th.size("chart"))
         chart.font.color.rgb = RGBColor.from_string(th.neutral(700))
@@ -970,6 +980,9 @@ class DeckRenderer:
         row_h = int(font * 2.2 * EMU_PT)
         gf = slide.shapes.add_table(nrows, len(cols), Emu(x), Emu(y), Emu(w), Emu(min(h, row_h * nrows)))
         tbl = gf.table
+        from .canvas import set_alt
+        set_alt(gf, u"表格%s：欄位 %s，共 %d 列" % (u"「%s」" % plain_text(b["title"]) if b.get("title") else "",
+                                               u"、".join(plain_text(str(c)) for c in cols), len(rows)))
         style_id = gf._element.graphic.graphicData.tbl.tblPr.find(qn("a:tableStyleId"))
         if style_id is not None:
             style_id.text = _NO_STYLE_TABLE

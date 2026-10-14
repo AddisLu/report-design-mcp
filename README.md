@@ -16,9 +16,11 @@
 
 流程（和設計師接案一樣分四段）：
 1. **需求與排版**：手寫板畫草稿（哪裡放甘特圖、哪裡只給簡介、哪裡要找圖）→ `get_design_context`
-2. **素材盤點**：`collect_assets` 列出版面計畫與待補素材，並在素材資料夾找候選圖（缺的請你補）
+2. **判讀確認＋素材盤點**：`collect_assets` 把模型讀到的版面畫成線框圖、和你的手繪草稿並排確認，列出待補素材並在素材資料夾找候選圖
 3. **動工**：`build_deck` → `preview_deck` 看圖自檢 → `patch_deck`
 4. **美術總檢**：`review_deck` 檢查整份配色、字型、對齊、節奏，附全部縮圖總覽
+5. **主管審閱**：主管在 PowerPoint 留註解 → `read_feedback` 讀註解（也會抓出你手動改過的地方）→ `patch_deck` 另存 v2、v3 並寫變更紀錄
+6. **越用越像公司**：`import_style` 從公司舊簡報學配色／字型／Logo；滿意的成品用 `save_example` 存成範例，下次模型會參考
 
 📘 **完整使用說明：[docs/使用說明.md](docs/使用說明.md)**，內容包含安裝、Copilot 設定、手繪草稿畫法、修改、自訂與疑難排解。
 
@@ -43,7 +45,7 @@ python -m venv .venv
 
 ## 掛到 GitHub Copilot（VS Code）
 1. 用 VS Code 開啟這個資料夾。`.vscode/mcp.json` 已經設定好 `report-design` server。
-2. Copilot Chat 切到 **Agent** 模式，在工具清單中確認有 `report-design` 的 11 個工具。
+2. Copilot Chat 切到 **Agent** 模式，在工具清單中確認有 `report-design` 的 14 個工具。
 3. `.github/copilot-instructions.md` 會自動套用工作流程；`.github/prompts/` 裡有 3 個一鍵 prompt：`/report-from-sketch`、`/exec-report`、`/project-review-mgr`。
 
 想在其他專案資料夾也能使用：把 `.vscode/mcp.json` 的路徑改成絕對路徑，例如 `C:/Coding/report-design-mcp/.venv/Scripts/python.exe`，再放到該專案的 `.vscode/` 或 VS Code 使用者設定中。
@@ -89,11 +91,14 @@ copy 公司範本.pptx design_system\templates\
 |---|---|
 | `get_design_context` | 一次取得受眾規則、文風、版型、已存版型、資料摘要、spec 寫法、範例、草稿圖片 |
 | `build_deck` | spec → 檢查＋自動修正＋產出 .pptx（同時存 .spec.json） |
-| `patch_deck` | 只改指定頁，再重新產出 |
+| `patch_deck` | 只改指定頁，另存新版本（_v2、_v3…）並寫變更紀錄，不覆蓋原檔 |
 | `preview_deck` | 版面檢查（溢出、重疊、對比、字級、太空太密）＋每頁圖片（本機 PowerPoint 匯出），讓模型看圖修正 |
 | `collect_assets` | 動工前的素材盤點：版面計畫表、待補素材、在素材資料夾找候選圖（附編號縮圖） |
 | `review_deck` | 完稿美術總檢：色票、字型、對齊、版面節奏、顏色太花，附整份縮圖總覽 |
 | `view_image` | 看截圖／照片（疊 0.1 格線），決定要框出的重點與放大位置 |
+| `read_feedback` | 讀主管在 PowerPoint 留的註解（新舊格式），對回 spec 頁碼，並列出手動改過的內容 |
+| `import_style` | 從公司舊簡報抽出配色、字型、Logo，確認後寫入 theme.yaml |
+| `save_example` | 把滿意的成品存成範例，之後同受眾的報告會參考 |
 | `read_sketch` | 草稿頁數很多時分批讀取 |
 | `get_sketch_canvas` | 產生格線底稿 PDF／PNG |
 | `save_layout` | 把草稿版型存成可重複使用的版型 |
@@ -123,6 +128,10 @@ copy 公司範本.pptx design_system\templates\
 .venv\Scripts\python cli.py build design_system\examples\executive_example.json -o output\
 .venv\Scripts\python cli.py patch output\Q3重點專案進度_executive.spec.json patch.json
 .venv\Scripts\python cli.py preview output\Q3重點專案進度_executive.pptx --out output\preview
+.venv\Scripts\python cli.py feedback output\Q3重點專案進度_executive.pptx
+.venv\Scripts\python cli.py style 公司舊簡報.pptx --apply
+.venv\Scripts\python cli.py pdf output\Q3重點專案進度_executive.pptx
+.venv\Scripts\python cli.py doctor
 ```
 
 ## 和 Claude Design 對比

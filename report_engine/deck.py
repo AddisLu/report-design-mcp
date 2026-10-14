@@ -762,7 +762,7 @@ def prepare(spec, base_dir=None):
     return b, nslides
 
 
-def build(spec, out_path=None, base_dir=None) -> dict:
+def build(spec, out_path=None, base_dir=None, pdf=False) -> dict:
     if not isinstance(spec, dict) or not isinstance(spec.get("slides"), list) or not spec["slides"]:
         return {"ok": False, "errors": [u"spec 需要是物件，且 slides 至少一頁"], "warnings": []}
     b, nslides = prepare(spec, base_dir)
@@ -808,6 +808,17 @@ def build(spec, out_path=None, base_dir=None) -> dict:
     saved_spec = dict(spec)
     saved_spec["sources"] = [str(resolve_path(p, base_dir)) for p in spec.get("sources") or []]
     saved_spec["_output"] = str(saved)
+    try:
+        from .feedback import fingerprint
+        saved_spec["_build"] = fingerprint(saved, mapping)
+    except Exception as e:  # never block delivery on bookkeeping
+        b.warnings.append(u"無法記錄建置指紋（之後偵測手動修改會失效）：%s" % e)
+    pdf_path = None
+    if pdf or spec.get("export_pdf"):
+        from .preview import export_pdf
+        pdf_path, err = export_pdf(saved)
+        if err:
+            b.warnings.append(err)
     spec_path = saved.with_suffix(".spec.json")
     C.write_json(spec_path, saved_spec)
     if b.replaced:
@@ -817,18 +828,44 @@ def build(spec, out_path=None, base_dir=None) -> dict:
         lint = lint_deck(saved, b.cfg)
     except Exception as e:  # lint must never block delivering the deck
         lint = {"slide_count": len(r.prs.slides), "issues": [{"slide": 0, "level": "info", "msg": u"版面檢查失敗：%s" % e}]}
-    return {"ok": True, "lint": lint, "assets_needed": b.assets_needed, "path": str(saved), "spec_path": str(spec_path), "slide_count": len(r.prs.slides),
+    return {"ok": True, "lint": lint, "assets_needed": b.assets_needed, "pdf": pdf_path, "path": str(saved), "spec_path": str(spec_path), "slide_count": len(r.prs.slides),
             "template": str(template), "audience": b.aud_key, "mapping": mapping,
             "annotations": annotations, "warnings": b.warnings}
 
 
-def patch(spec_path, slides=None, delete=None, insert=None, out_path=None) -> dict:
+def _next_version(path: Path) -> Path:
+    m = re.match(r"^(.*)_v(\d+)$", path.stem)
+    base, n = (m.group(1), int(m.group(2))) if m else (path.stem, 1)
+    cand = path.with_name("%s_v%d%s" % (base, n + 1, path.suffix))
+    while cand.exists():
+        n += 1
+        cand = path.with_name("%s_v%d%s" % (base, n + 1, path.suffix))
+    return cand
+
+
+def _version_of(path) -> int:
+    m = re.match(r"^.*_v(\d+)$", Path(str(path)).stem)
+    return int(m.group(1)) if m else 1
+
+
+def _write_changelog(history, out: Path) -> Path:
+    m = re.match(r"^(.*)_v\d+$", out.stem)
+    log = out.with_name(u"%s_變更紀錄.md" % (m.group(1) if m else out.stem))
+    lines = [u"# 變更紀錄", ""]
+    for h in history:
+        lines.append(u"## v%d（%s）%s" % (h["version"], h.get("at", ""), Path(h.get("path", "")).name))
+        lines += [u"- " + c for c in h.get("changes") or []] + [""]
+    log.write_text("\n".join(lines), encoding="utf-8")
+    return log
+
+
+def patch(spec_path, slides=None, delete=None, insert=None, out_path=None, pdf=False) -> dict:
     p = resolve_path(spec_path)
     spec = C.read_json(p, None)
     if not isinstance(spec, dict):
         return {"ok": False, "errors": [u"讀不到 spec：%s" % spec_path], "warnings": []}
     orig = spec.get("slides") or []
-    errors = []
+    errors, changes = [], []
     for k, change in (slides or {}).items():
         try:
             i = int(k) - 1
@@ -840,6 +877,7 @@ def patch(spec_path, slides=None, delete=None, insert=None, out_path=None) -> di
             continue
         if change.get("_replace"):
             orig[i] = {kk: vv for kk, vv in change.items() if kk != "_replace"}
+            changes.append(u"spec 第 %s 頁：整頁重寫" % k)
         else:
             new = dict(orig[i])
             for kk, vv in change.items():
@@ -848,6 +886,7 @@ def patch(spec_path, slides=None, delete=None, insert=None, out_path=None) -> di
                 else:
                     new[kk] = vv
             orig[i] = new
+            changes.append(u"spec 第 %s 頁：修改 %s" % (k, u"、".join(change)))
     if errors:
         return {"ok": False, "errors": errors, "warnings": []}
     slots = [[s] for s in orig]
@@ -855,10 +894,40 @@ def patch(spec_path, slides=None, delete=None, insert=None, out_path=None) -> di
     for d in delete or []:
         if 1 <= int(d) <= len(slots):
             slots[int(d) - 1] = []
+            changes.append(u"刪除原 spec 第 %s 頁" % d)
     for ins in insert or []:
         after = int(ins.get("after", len(slots)))
         (head if after <= 0 else slots[min(after, len(slots)) - 1]).append(ins.get("slide") or {})
+        changes.append(u"在原第 %d 頁後插入「%s」" % (after, (ins.get("slide") or {}).get("title", u"新頁")))
     spec["slides"] = head + [s for slot in slots for s in slot]
-    out = out_path or spec.pop("_output", None)
+
+    info = spec.pop("_build", None)
+    prev = (info or {}).get("output") or spec.get("_output")
     spec.pop("_output", None)
-    return build(spec, out, base_dir=p.parent)
+    from .feedback import manual_edits
+    edits = manual_edits(info, prev) if prev and Path(prev).exists() else []
+    if out_path:
+        out = out_path
+    elif prev:
+        out = str(_next_version(Path(prev)))  # never overwrite the reviewed / hand-edited file
+    else:
+        out = None
+    history = list(spec.get("_history") or [])
+    if not history and prev:
+        history.append({"version": _version_of(prev), "path": prev, "at": (info or {}).get("built_at", ""),
+                        "changes": [u"初版"]})
+    spec["_history"] = history
+    res = build(spec, out, base_dir=p.parent, pdf=pdf)
+    if not res.get("ok"):
+        return res
+    entry = {"version": _version_of(res["path"]), "path": res["path"],
+             "at": _dt.datetime.now().isoformat(timespec="seconds"), "changes": changes or [u"重新產生"]}
+    history.append(entry)
+    saved = C.read_json(res["spec_path"], {})
+    saved["_history"] = history
+    C.write_json(res["spec_path"], saved)
+    res["changes"] = entry["changes"]
+    res["changelog"] = str(_write_changelog(history, Path(res["path"])))
+    res["manual_edits"] = edits
+    res["previous"] = prev
+    return res

@@ -337,6 +337,115 @@ def test_workflow_assets_review():
     check(not r["isError"] and u"美術總檢" in r["content"][0]["text"], "review_deck tool")
 
 
+def _add_comments(prs):
+    """Old-style (commentAuthors + comment1) and new-style (authors + modernComment) comments, as PowerPoint writes."""
+    from pptx.opc.constants import CONTENT_TYPE as CT, RELATIONSHIP_TYPE as RT
+    from pptx.opc.package import Part
+    from pptx.opc.packuri import PackURI
+
+    P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    P188 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main"
+    A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    pkg = prs.part.package
+    prs.part.relate_to(Part(PackURI("/ppt/commentAuthors.xml"), CT.PML_COMMENT_AUTHORS, pkg, (
+        u'<p:cmAuthorLst xmlns:p="%s"><p:cmAuthor id="0" name="王經理" initials="W" lastIdx="1" clrIdx="0"/>'
+        u'</p:cmAuthorLst>' % P).encode("utf-8")), RT.COMMENT_AUTHORS)
+    prs.slides[1].part.relate_to(Part(PackURI("/ppt/comments/comment1.xml"), CT.PML_COMMENTS, pkg, (
+        u'<p:cmLst xmlns:p="%s"><p:cm authorId="0" dt="2026-10-14T10:00:00" idx="1"><p:pos x="10" y="10"/>'
+        u'<p:text>標題改成強調延遲</p:text></p:cm></p:cmLst>' % P).encode("utf-8")), RT.COMMENTS)
+    prs.part.relate_to(Part(PackURI("/ppt/authors.xml"), "application/vnd.ms-powerpoint.authors+xml", pkg, (
+        u'<p188:authorLst xmlns:p188="%s"><p188:author id="{A1}" name="陳協理" initials="C" userId="c" '
+        u'providerId="None"/></p188:authorLst>' % P188).encode("utf-8")),
+        "http://schemas.microsoft.com/office/2018/10/relationships/authors")
+    prs.slides[2].part.relate_to(Part(PackURI("/ppt/comments/modernComment_1.xml"), "application/vnd.ms-powerpoint.comments+xml",
+                                      pkg, (
+        u'<p188:cmLst xmlns:p188="%s" xmlns:a="%s"><p188:cm id="{C1}" authorId="{A1}" created="2026-10-14T11:00:00">'
+        u'<p188:txBody><a:bodyPr/><a:p><a:r><a:t>圖表加上目標線</a:t></a:r></a:p></p188:txBody></p188:cm>'
+        u'<p188:cm id="{C2}" authorId="{A1}" created="2026-10-14T11:10:00" status="resolved"><p188:txBody><a:bodyPr/>'
+        u'<a:p><a:r><a:t>已確認</a:t></a:r></a:p></p188:txBody></p188:cm></p188:cmLst>' % (P188, A)).encode("utf-8")),
+        "http://schemas.microsoft.com/office/2018/10/relationships/comments")
+
+
+def test_review_loop_and_style():
+    from report_engine import config as C
+    from report_engine.assets import collect
+    from report_engine.context import build_context
+    from report_engine.feedback import read_comments
+    from report_engine.style_import import extract_style, import_style
+
+    with open(MANAGER, encoding="utf-8") as f:
+        spec = json.load(f)
+    out = os.path.join(TMP, "loop", u"月報.pptx")
+    res = deck.build(spec, out)
+    check(res["ok"], "base deck builds")
+    built = C.read_json(res["spec_path"], {})
+    check(built["_build"]["sha1"] and len(built["_build"]["slides"]) == 5, "build fingerprint stored in .spec.json")
+    prs = Presentation(res["path"])
+    for shp in walk(prs.slides[4].shapes):
+        if shp.has_text_frame:
+            for p in shp.text_frame.paragraphs:
+                for r in p.runs:
+                    r.text = r.text.replace("11/14", "11/21")
+    _add_comments(prs)
+    prs.save(res["path"])
+    comments = read_comments(res["path"])
+    check([(c["slide"], c["author"], c["resolved"]) for c in comments] ==
+          [(2, u"王經理", False), (3, u"陳協理", False), (3, u"陳協理", True)], "old + new style comments read")
+    fb = tools.call_tool("read_feedback", {"path": res["path"]})["content"][0]["text"]
+    check(u"標題改成強調延遲" in fb and u"未解決 2" in fb and u"改成：" in fb and "11/21" in fb,
+          "read_feedback maps comments to spec pages and shows the manual edit")
+    r2 = deck.patch(res["spec_path"], {"2": {"title": u"延遲 1 案：B 案需追加外包"}})
+    check(r2["ok"] and r2["path"].endswith(u"月報_v2.pptx") and os.path.exists(res["path"]),
+          "patch saves _v2 and keeps the reviewed file")
+    check(any(e["slide"] == 5 for e in r2["manual_edits"]), "patch reports slides edited by hand")
+    check(u"spec 第 2 頁：修改 title" in r2["changes"] and os.path.exists(r2["changelog"]), "change log written")
+    r3 = deck.patch(r2["spec_path"], delete=[4])
+    check(r3["path"].endswith(u"月報_v3.pptx") and len(C.read_json(r3["spec_path"], {})["_history"]) == 3,
+          "history accumulates v1 → v2 → v3")
+    check(not r3["manual_edits"], "untouched v2 has no manual edits")
+
+    # sketch confirmation: wireframes side by side with the sketch page
+    canvas = make_canvas(os.path.join(TMP, "loop", "sk.pdf"), pages=2)
+    spec2 = dict(spec, sketch=canvas[0])
+    spec2["slides"] = [dict(s, source_page=1) for s in spec["slides"][:2]]
+    text, imgs = collect(spec2)
+    check(u"版面判讀確認" in text and len(imgs) == 2, "collect_assets returns wireframes beside the sketch")
+
+    # learn a company style from an existing deck
+    theme_file = os.path.join(DESIGN, "theme.yaml")
+    with open(theme_file, encoding="utf-8") as f:
+        original = f.read()
+    with open(theme_file, "w", encoding="utf-8") as f:
+        f.write(original.replace('primary: "1E4E8C"', 'primary: "0F766E"').replace('latin: "Segoe UI"', 'latin: "Calibri"'))
+    company = deck.build(spec, os.path.join(TMP, "loop", "company.pptx"))
+    with open(theme_file, "w", encoding="utf-8") as f:
+        f.write(original)
+    style, _notes, _logo = extract_style(company["path"])
+    check(style["colors"]["primary"] == "0F766E" and style["fonts"]["latin"] == "Calibri",
+          "import_style finds the brand colour and font (%s)" % style["colors"]["primary"])
+    _t, img = import_style(company["path"], apply=True)
+    check(img and os.path.exists(theme_file + ".bak") and "0F766E" in open(theme_file, encoding="utf-8").read(),
+          "import_style apply writes theme.yaml and keeps a backup")
+    with open(theme_file, "w", encoding="utf-8") as f:
+        f.write(original)
+
+    # approved deck becomes an example
+    dest = C.save_example(r3["spec_path"], u"Q3月報")
+    saved = C.read_json(dest, {})
+    check(not any(k.startswith("_") for k in saved), "save_example strips internal fields")
+    ctx, _ = build_context("manager", [CSV])
+    check(u"manager_Q3月報.json" in ctx, "newest example of the audience goes into the context")
+
+    # alt text everywhere; PDF degrades gracefully off Windows
+    pres = Presentation(res["path"])
+    descrs = [s._element._nvXxPr.cNvPr.get("descr") for sl in pres.slides for s in sl.shapes
+              if s.shape_type in (3, 6) or getattr(s, "has_table", False)]
+    check(descrs and all(descrs), "charts, tables and groups carry alt text")
+    if os.name != "nt":
+        rp = deck.build(spec, os.path.join(TMP, "loop", "pdf.pptx"), pdf=True)
+        check(rp["ok"] and rp["pdf"] is None and any("PDF" in w for w in rp["warnings"]), "PDF export reports why it was skipped")
+
+
 def test_mcp_stdio():
     with open(EXAMPLE, encoding="utf-8") as f:
         spec = json.load(f)
@@ -355,7 +464,7 @@ def test_mcp_stdio():
     replies = [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line.strip()]
     check([r.get("id") for r in replies] == [1, 2, 3, 4], "one reply per request, none for the notification")
     check(replies[0]["result"]["serverInfo"]["name"] == "report-design", "initialize")
-    check(len(replies[1]["result"]["tools"]) == 11, "tools/list returns 11 tools")
+    check(len(replies[1]["result"]["tools"]) == 14, "tools/list returns 14 tools")
     ctx = replies[2]["result"]["content"][0]["text"]
     check("t1 ＝ sample_projects.csv" in ctx and "高階主管" in ctx, "context includes data and audience")
     check(u"視覺設計指引" in ctx and "preview_deck" in ctx, "context includes the visual design guide")
@@ -367,7 +476,7 @@ if __name__ == "__main__":
     try:
         for fn in (test_facts, test_build_and_patch, test_overflow_and_layouts, test_errors,
                    test_sketch_and_blueprint, test_design_system, test_diagrams_svg_images,
-                   test_workflow_assets_review, test_mcp_stdio):
+                   test_workflow_assets_review, test_review_loop_and_style, test_mcp_stdio):
             print("==", fn.__name__)
             fn()
         print("\nALL PASSED  (outputs in %s)" % TMP)

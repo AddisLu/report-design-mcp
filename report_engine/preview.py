@@ -86,3 +86,55 @@ def export_images(pptx_path, slides: Optional[str] = None, total: int = 0, max_e
         return None, u"無法啟動 PowerShell：%s" % e
     finally:
         shutil.rmtree(str(tmp), ignore_errors=True)
+
+
+_PS_PDF = r"""
+param([string]$In, [string]$Out)
+$ErrorActionPreference = 'Stop'
+$app = New-Object -ComObject PowerPoint.Application
+$pres = $null
+try {
+  $pres = $app.Presentations.Open($In, -1, 0, 0)
+  $pres.SaveAs($Out, 32)  # ppSaveAsPDF
+} finally {
+  if ($pres -ne $null) { $pres.Close() }
+  if ($app.Presentations.Count -eq 0) { $app.Quit() }
+  [System.Runtime.Interopservices.Marshal]::ReleaseComObject($app) | Out-Null
+}
+"""
+
+
+def run_script(script_text, args, timeout=TIMEOUT):
+    """Run a PowerShell script file with -Name value args -> (ok, stdout, error message)."""
+    ps = _powershell()
+    if ps is None:
+        return False, "", u"這台電腦不是 Windows，無法使用 PowerPoint"
+    tmp = Path(tempfile.mkdtemp(prefix="report_ps_"))
+    script = tmp / "run.ps1"
+    script.write_text(script_text, encoding="utf-8-sig")
+    cmd = [ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(script)]
+    for k, v in args:
+        cmd += ["-" + k, str(v)]
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        out = proc.stdout.decode("utf-8", "replace")
+        if proc.returncode != 0:
+            err = proc.stderr.decode("utf-8", "replace").strip().splitlines()
+            return False, out, (err[-1] if err else str(proc.returncode))
+        return True, out, ""
+    except subprocess.TimeoutExpired:
+        return False, "", u"PowerPoint 逾時（%d 秒）" % timeout
+    except OSError as e:
+        return False, "", u"無法啟動 PowerShell：%s" % e
+    finally:
+        shutil.rmtree(str(tmp), ignore_errors=True)
+
+
+def export_pdf(pptx_path, pdf_path=None):
+    """-> (pdf path or None, error message)."""
+    src = Path(pptx_path).resolve()
+    dest = Path(pdf_path).resolve() if pdf_path else src.with_suffix(".pdf")
+    ok, _out, err = run_script(_PS_PDF, [("In", src), ("Out", dest)])
+    if ok and dest.exists():
+        return str(dest), ""
+    return None, u"PDF 匯出失敗：%s" % (err or u"沒有產生檔案")

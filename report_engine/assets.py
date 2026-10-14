@@ -135,7 +135,28 @@ def _block_label(bk):
     return name
 
 
-def collect(spec, folders=None, base_dir=None):
+def _wireframe_images(spec, base_dir, slides):
+    """Trial build in a temp folder, then draw what each slide will look like (layout boxes + note readings)."""
+    import shutil
+    import tempfile
+
+    from .deck import build
+    from .sketch import parse_pages
+    from .wireframe import wireframes
+
+    tmp = tempfile.mkdtemp(prefix="report_wire_")
+    try:
+        res = build(dict(spec), os.path.join(tmp, "plan.pptx"), base_dir=base_dir)
+        if not res.get("ok"):
+            return [], 0
+        wanted = [i + 1 for i in parse_pages(slides, res["slide_count"])] if slides else None
+        imgs = wireframes(res["path"], spec, res["mapping"], wanted)
+        return imgs, res["slide_count"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def collect(spec, folders=None, base_dir=None, slides=None):
     """-> (markdown text, [image dicts])."""
     from .deck import prepare
 
@@ -148,9 +169,22 @@ def collect(spec, folders=None, base_dir=None):
         missing = [bk for bk in blocks if bk["type"] == "placeholder"]
         state = u"⚠ 缺 %d 項素材" % len(missing) if missing else u"✓ 齊全"
         lines.append(u"| %s | %s | %s | %s |" % (page, plain_text(ns.get("title") or "")[:28], kind, state))
+    images = []
     if b.errors:
         lines += ["", u"## ❌ 資料或寫法問題（%d）" % len(b.errors)] + [u"- " + e for e in b.errors]
-    images = []
+    else:
+        try:
+            wires, total = _wireframe_images(spec, base_dir, slides)
+        except Exception as e:  # the plan table is still useful without pictures
+            wires, total = [], 0
+            lines.append(u"\n（線框圖產生失敗：%s）" % e)
+        if wires:
+            lines += ["", u"## 版面判讀確認（%d 張線框圖%s）" % (len(wires), u"，共 %d 頁，可用 slides 參數看其他頁" % total
+                                                         if total > len(wires) else ""),
+                      u"下方先是線框圖（%s）：每個框是一個區塊與它的類型，紅字是手寫註解的解讀。"
+                      % (u"左邊是手繪草稿、右邊是判讀結果" if spec.get("sketch") else u"spec 沒有寫 sketch，所以只有判讀結果"),
+                      u"請使用者確認框的位置、類型與註解解讀都對，再補素材。"]
+            images += [{"type": "image", "data": w, "mimeType": "image/jpeg"} for w in wires]
     if b.assets_needed:
         dirs = [resolve_path(f, base_dir) for f in folders] if folders else default_folders(spec, base_dir)
         files = list_images(dirs)
@@ -174,7 +208,8 @@ def collect(spec, folders=None, base_dir=None):
     if b.warnings:
         lines += ["", u"## 提醒"] + [u"- " + w for w in b.warnings[:15]]
     ready = not b.errors and not b.assets_needed
-    lines += ["", u"**下一步**：" + (u"素材齊全，可以 build_deck。" if ready else
-              u"把清單交給使用者確認：選好的候選圖填進該區塊的 path（截圖建議 style:\"browser\"），"
-              u"缺的請使用者提供；可以先 build_deck，待補的位置會放待補框。")]
+    lines += ["", u"**下一步**：先請使用者對照線框圖確認版面判讀與註解解讀（讀錯就改 spec 再呼叫一次 collect_assets）；"
+              + (u"素材齊全，確認後就可以 build_deck。" if ready else
+                 u"再把待補清單交給使用者：選好的候選圖填進該區塊的 path（截圖建議 style:\"browser\"），"
+                 u"缺的請使用者提供；也可以先 build_deck，待補的位置會放待補框。")]
     return "\n".join(lines), images

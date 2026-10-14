@@ -20,7 +20,9 @@ SERVER_INSTRUCTIONS = (
     u"製作 PowerPoint 報告用。流程：1) get_design_context（audience、sources；有手繪草稿就帶 sketch）；"
     u"2) 寫出完整 spec；有草稿、截圖或「找圖」需求時先呼叫 collect_assets 確認素材齊全（缺的請使用者補）；"
     u"3) build_deck；4) preview_deck 看每頁圖片，用 patch_deck 只修有問題的頁（最多 2 輪）；"
-    u"5) review_deck 做整份的配色／字型／對齊／節奏總檢；6) 回報使用者。數字一律用 {t1…} 引用。"
+    u"5) review_deck 做整份的配色／字型／對齊／節奏總檢；6) 回報使用者。"
+    u"主管在 PowerPoint 留註解後用 read_feedback 讀取再 patch_deck（自動另存新版本）。"
+    u"使用者滿意的成品可用 save_example 存成範例；要學公司舊簡報的配色字型用 import_style。數字一律用 {t1…} 引用。"
 )
 
 _STR = {"type": "string"}
@@ -57,13 +59,15 @@ TOOL_DEFS = [
             "properties": {
                 "spec": {"type": "object", "description": u"完整 spec（寫法見 get_design_context）", "additionalProperties": True},
                 "out_path": {"type": "string", "description": u"輸出 .pptx 路徑或資料夾；省略存到 output/"},
+                "pdf": {"type": "boolean", "description": u"同時用本機 PowerPoint 匯出 PDF"},
             },
             "required": ["spec"],
         },
     },
     {
         "name": "patch_deck",
-        "description": u"只修改指定頁再重新產出（其他頁不動）。頁碼是 spec 的頁碼（build_deck 回傳的對照表左欄）。",
+        "description": (u"只修改指定頁再重新產出（其他頁不動）。頁碼是 spec 的頁碼（build_deck 回傳的對照表左欄）。"
+                        u"會另存新版本（_v2、_v3…）並附變更紀錄，不覆蓋原檔；原檔在 PowerPoint 手動改過會列出差異。"),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -74,6 +78,7 @@ TOOL_DEFS = [
                 "insert": {"type": "array", "items": {"type": "object"},
                            "description": u"[{\"after\": 2, \"slide\": {…}}]，after=0 表示放最前面"},
                 "out_path": {"type": "string"},
+                "pdf": {"type": "boolean", "description": u"同時匯出 PDF"},
             },
             "required": ["spec_path"],
         },
@@ -96,8 +101,8 @@ TOOL_DEFS = [
     {
         "name": "collect_assets",
         "description": (
-            u"動工前的素材盤點：不產生簡報，只檢查 spec 每頁的版面區塊與素材是否齊全（資料引用、截圖、照片），"
-            u"並在素材資料夾搜尋草稿上「找圖」的圖片，回傳版面計畫表、待補清單與候選圖縮圖。"
+            u"動工前的確認：不產生正式簡報。回傳版面計畫表、每頁線框圖（spec 有 sketch 時和手繪草稿並排，"
+            u"讓使用者確認版面與註解判讀）、待補素材清單，並在素材資料夾搜尋草稿上「找圖」的圖片（附編號縮圖）。"
         ),
         "inputSchema": {
             "type": "object",
@@ -105,6 +110,7 @@ TOOL_DEFS = [
                 "spec": {"type": "object", "additionalProperties": True,
                          "description": u"完整 spec；還沒有的圖片寫 {\"need\":\"OpenProject 甘特圖截圖\",\"search\":[\"甘特\",\"gantt\"]}"},
                 "folders": {"type": "array", "items": _STR, "description": u"要搜尋的素材資料夾；省略時用 spec.asset_dirs、assets/、screenshots/ 等"},
+                "slides": {"type": "string", "description": u"線框圖只看這些投影片，例如 9-16（一次最多 8 張）"},
             },
             "required": ["spec"],
         },
@@ -119,6 +125,40 @@ TOOL_DEFS = [
             "type": "object",
             "properties": {"path": {"type": "string", "description": u".pptx 或 .spec.json 路徑"}},
             "required": ["path"],
+        },
+    },
+    {
+        "name": "read_feedback",
+        "description": (
+            u"讀取主管在 PowerPoint 留的註解（新式與舊式註解都支援），對應回 spec 頁碼，"
+            u"並列出檔案在 PowerPoint 裡被手動改過的地方。之後把未解決的註解合併成一次 patch_deck。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": u"主管改過／留了註解的 .pptx（或它的 .spec.json）"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "import_style",
+        "description": (
+            u"從公司現有的好簡報（.pptx/.potx）抽出品牌主色、輔色、灰階、字型與 Logo，回傳設定與色票圖；"
+            u"使用者確認後用 apply=true 寫入 design_system/theme.yaml（自動備份舊檔）。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"pptx_path": _STR, "apply": {"type": "boolean", "description": u"true＝寫入 theme.yaml"}},
+            "required": ["pptx_path"],
+        },
+    },
+    {
+        "name": "save_example",
+        "description": u"把使用者滿意的成品存成範例（design_system/examples/），之後 get_design_context 會優先參考同受眾最新的範例。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"spec_path": {"type": "string", "description": u"成品的 .spec.json"},
+                           "name": {"type": "string", "description": u"範例名稱，例如「Q3月報」"}},
+            "required": ["spec_path", "name"],
         },
     },
     {
@@ -211,10 +251,14 @@ def format_build(res) -> str:
             lines.append(u"\n其他提醒：")
             lines += [u"- " + w for w in res["warnings"][:15]]
         return "\n".join(lines)
-    lines = [u"✅ 已產出：%s（%d 張投影片）" % (res["path"], res["slide_count"]),
-             u"spec：%s（之後用 patch_deck 修改）" % res["spec_path"],
-             u"範本：%s；受眾：%s" % (res["template"], res["audience"]),
-             "", u"### 頁面對照（spec 頁 → 投影片）"]
+    lines = [u"✅ 已產出：%s（%d 張投影片）" % (res["path"], res["slide_count"])]
+    if res.get("previous"):
+        lines.append(u"（另存新版本，原檔 %s 保留不動）" % res["previous"])
+    if res.get("pdf"):
+        lines.append(u"PDF：%s" % res["pdf"])
+    lines += [u"spec：%s（之後用 patch_deck 修改）" % res["spec_path"],
+              u"範本：%s；受眾：%s" % (res["template"], res["audience"]),
+              "", u"### 頁面對照（spec 頁 → 投影片）"]
     for m in res["mapping"]:
         nums = m["slides"]
         rng = u"—" if not nums else (str(nums[0]) if len(nums) == 1 else u"%d–%d" % (nums[0], nums[-1]))
@@ -231,6 +275,13 @@ def format_build(res) -> str:
         lines += [u"- " + w for w in res["warnings"][:25]]
         if len(res["warnings"]) > 25:
             lines.append(u"- …另有 %d 則" % (len(res["warnings"]) - 25))
+    if res.get("changes"):
+        lines += ["", u"### 變更紀錄（第 %d 版）" % deck._version_of(res["path"])]
+        lines += [u"- " + c for c in res["changes"]]
+        lines.append(u"完整紀錄：%s" % res.get("changelog", ""))
+    if res.get("manual_edits"):
+        from .feedback import format_edits
+        lines += ["", format_edits(res["manual_edits"])]
     if res.get("assets_needed"):
         lines += ["", u"### 待補素材（%d）——投影片上放了待補框" % len(res["assets_needed"])]
         lines += [u"- %s：%s" % (a["where"], a["need"]) for a in res["assets_needed"]]
@@ -250,12 +301,13 @@ def h_get_design_context(a):
 
 
 def h_build_deck(a):
-    res = deck.build(_obj(a.get("spec")), a.get("out_path"))
+    res = deck.build(_obj(a.get("spec")), a.get("out_path"), pdf=bool(a.get("pdf")))
     return _text(format_build(res), not res.get("ok"))
 
 
 def h_patch_deck(a):
-    res = deck.patch(a["spec_path"], _obj(a.get("slides")), _obj(a.get("delete")), _obj(a.get("insert")), a.get("out_path"))
+    res = deck.patch(a["spec_path"], _obj(a.get("slides")), _obj(a.get("delete")), _obj(a.get("insert")),
+                     a.get("out_path"), pdf=bool(a.get("pdf")))
     return _text(format_build(res), not res.get("ok"))
 
 
@@ -279,7 +331,7 @@ def h_preview_deck(a):
 def h_collect_assets(a):
     from .assets import collect
 
-    text, imgs = collect(_obj(a.get("spec")) or {}, _obj(a.get("folders")))
+    text, imgs = collect(_obj(a.get("spec")) or {}, _obj(a.get("folders")), slides=a.get("slides"))
     return {"content": [{"type": "text", "text": text}] + imgs, "isError": False}
 
 
@@ -308,6 +360,43 @@ def h_review_deck(a):
     else:
         text += u"\n\n（沒有縮圖總覽：%s）" % (err or u"未知原因")
     return {"content": [{"type": "text", "text": text}] + content, "isError": False}
+
+
+def h_read_feedback(a):
+    from .feedback import format_feedback, manual_edits, read_comments, slide_texts
+    from .template import open_presentation
+
+    raw = resolve_path(a["path"])
+    p = _deck_path(a["path"])
+    if not p.exists():
+        return _text(u"找不到簡報：%s" % a["path"], True)
+    spec_file = raw if raw.suffix.lower() == ".json" else p.with_suffix(".spec.json")
+    info = (C.read_json(spec_file, {}) or {}).get("_build") if spec_file.exists() else None
+    comments = read_comments(p)
+    titles = [t.split("\n", 1)[0] for t in slide_texts(open_presentation(p))]
+    text = format_feedback(p, comments, info, manual_edits(info, p), titles)
+    if spec_file.exists():
+        text += u"\n\npatch_deck 的 spec_path：%s" % spec_file
+    return _text(text)
+
+
+def h_import_style(a):
+    from .style_import import import_style
+
+    p = resolve_path(a["pptx_path"])
+    if not p.exists():
+        return _text(u"找不到簡報：%s" % a["pptx_path"], True)
+    text, img = import_style(p, apply=bool(a.get("apply")))
+    return {"content": [{"type": "text", "text": text}, {"type": "image", "data": img, "mimeType": "image/jpeg"}],
+            "isError": False}
+
+
+def h_save_example(a):
+    try:
+        dest = C.save_example(resolve_path(a["spec_path"]), a.get("name") or "example")
+    except ValueError as e:
+        return _text(str(e), True)
+    return _text(u"已存成範例：%s。之後同受眾做報告時，get_design_context 會優先參考最新的 2 份範例。" % dest)
 
 
 def h_view_image(a):
@@ -405,6 +494,9 @@ HANDLERS = {
     "patch_deck": h_patch_deck,
     "preview_deck": h_preview_deck,
     "view_image": h_view_image,
+    "import_style": h_import_style,
+    "save_example": h_save_example,
+    "read_feedback": h_read_feedback,
     "collect_assets": h_collect_assets,
     "review_deck": h_review_deck,
     "read_sketch": h_read_sketch,

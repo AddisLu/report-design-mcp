@@ -6,7 +6,7 @@ import math
 
 from pptx.enum.shapes import MSO_SHAPE
 
-from .canvas import EMU_PT, Canvas
+from .canvas import EMU_PT, Canvas, set_alt
 from .theme import contrast, mix
 
 EMU_IN = 914400
@@ -139,6 +139,10 @@ def draw_gantt(r, slide, rect, b):
         ticks, unit = sc.ticks()
 
     cv = Canvas(r, slide, "Gantt")
+    late = [rw["name"] for rw in rows if rw.get("status") in ("bad", "warn")]
+    set_alt(cv.group, u"甘特圖：%d 項工作，%s～%s%s" % (
+        sum(1 for rw in rows if rw["kind"] == "task"), lo.isoformat(), (hi - dt.timedelta(days=1)).isoformat(),
+        u"；延遲／注意：" + u"、".join(late) if late else ""))
     top = y + header_h
     bottom = top + row_h * len(rows)
     # zebra rows and group bands
@@ -231,6 +235,8 @@ def draw_timeline(r, slide, rect, b):
     slot = (x1 - x0) / float(max(1, n - 1)) if n > 1 else (x1 - x0)
     block_w = min(slot * (1.85 if alternate else 0.95), EMU_IN * 2.6)
     cv = Canvas(r, slide, "Timeline")
+    set_alt(cv.group, u"時程表：" + u"；".join(
+        u"%s %s" % (it.get("when") or (it["date"].isoformat() if it.get("date") else ""), it["label"]) for it in items))
     cv.line(x + pad, axis_y, x + w - pad, axis_y, th.neutral(300), 2.0)
     today = b.get("today")
     done_x = None
@@ -309,6 +315,7 @@ def draw_process(r, slide, rect, b):
     states = [s.get("state") for s in steps]
     explicit = any(states)
     cv = Canvas(r, slide, "Process")
+    set_alt(cv.group, u"流程：" + u" → ".join(s["title"] for s in steps))
     title_size = th.size("body", 1)
     for s in steps:
         title_size = min(title_size, (cw - point * 2 - EMU_PT * 10) / EMU_PT / max(_em(s["title"]), 1.0))

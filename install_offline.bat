@@ -29,4 +29,8 @@ if errorlevel 1 (
 
 echo Running smoke test ...
 .venv\Scripts\python tests\smoke_test.py
-exit /b %errorlevel%
+if errorlevel 1 exit /b 1
+
+echo Checking fonts / PowerPoint / design system ...
+.venv\Scripts\python cli.py doctor
+exit /b 0

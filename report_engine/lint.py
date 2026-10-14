@@ -146,6 +146,21 @@ def _check_group(ctx, n, grp, bg):
     return chars
 
 
+_IMG_NAME = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".emf", ".wmf")
+
+
+def _missing_alt(shapes):
+    for shp in shapes:
+        if shp.shape_type == MSO_SHAPE_TYPE.GROUP:
+            if _missing_alt(shp.shapes):
+                return True
+        elif shp.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            descr = (shp._element._nvXxPr.cNvPr.get("descr") or "").strip().lower()
+            if not descr or descr.endswith(_IMG_NAME):
+                return True
+    return False
+
+
 def _check_slide(ctx, n, slide):
     sw, sh = ctx.sw, ctx.sh
     bg = _layout_bg(slide)
@@ -216,6 +231,8 @@ def _check_slide(ctx, n, slide):
             small = min(ra[2] * ra[3], rb[2] * rb[3]) or 1
             if inter > small * 0.08:
                 ctx.add(n, "warn", u"「%s」和「%s」重疊" % (a[2].name, b[2].name))
+    if _missing_alt(slide.shapes):
+        ctx.add(n, "info", u"有圖片沒有替代文字（只有檔名）：在 image 加 caption，或於 PowerPoint「替代文字」補上說明")
     if chars > MAX_CHARS:
         ctx.add(n, "warn", u"文字 %d 字，太密（建議 %d 字內，或拆頁／改用圖表）" % (chars, MAX_CHARS))
     if not is_divider and content:

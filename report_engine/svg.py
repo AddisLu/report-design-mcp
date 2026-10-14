@@ -12,7 +12,7 @@ import re
 
 from lxml import etree
 
-from .canvas import EMU_PT, Canvas, resolve_color
+from .canvas import EMU_PT, Canvas, resolve_color, set_alt
 
 SAFE_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False, remove_comments=True)
 _NUM = r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?"
@@ -453,6 +453,9 @@ def draw_svg(renderer, slide, rect, markup):
     root = parse_svg(markup)
     conv = _Converter(renderer, slide, rect, root)
     conv.walk(root, conv.base, {"fill": "black", "opacity": 1.0})
+    title = next((el.text for el in root.iter() if local(el.tag) == "title" and el.text), None)
+    texts = [t.strip() for el in root.iter() if local(el.tag) in ("text", "tspan") for t in [el.text or ""] if t.strip()]
+    set_alt(conv.canvas.group, u"示意圖：" + (title or u"、".join(texts[:12])))
     notes = []
     if conv.ignored:
         notes.append(u"SVG 不支援的元素已略過：%s" % u"、".join(sorted(conv.ignored)))

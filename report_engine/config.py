@@ -94,9 +94,35 @@ def save_blueprints(data: dict) -> None:
 
 def examples() -> List[Tuple[Path, dict]]:
     out = []
-    for p in sorted((design_dir() / "examples").glob("*.json")):
+    for p in sorted((design_dir() / "examples").glob("*.json"), key=lambda q: (-q.stat().st_mtime, q.name)):
         try:
             out.append((p, read_json(p, {})))
         except ValueError:
             continue
     return out
+
+
+INTERNAL_KEYS = ("_build", "_history", "_output")
+
+
+def save_example(spec_path, name) -> Path:
+    """Store a finished, approved spec as a few-shot example for get_design_context."""
+    import re
+
+    spec = read_json(spec_path, None)
+    if not isinstance(spec, dict) or not spec.get("slides"):
+        raise ValueError("讀不到 spec：%s" % spec_path)
+    clean = {k: v for k, v in spec.items() if k not in INTERNAL_KEYS}
+    root = design_dir().parent
+    srcs = []
+    for s in clean.get("sources") or []:
+        try:
+            srcs.append(str(Path(s).resolve().relative_to(root)).replace("\\", "/"))
+        except ValueError:
+            srcs.append(s)
+    clean["sources"] = srcs
+    aud = str(clean.get("audience") or "manager")
+    safe = re.sub(r'[\\/:*?"<>|\s]+', "_", str(name)).strip("_") or "example"
+    dest = design_dir() / "examples" / ("%s_%s.json" % (aud, safe))
+    write_json(dest, clean)
+    return dest
